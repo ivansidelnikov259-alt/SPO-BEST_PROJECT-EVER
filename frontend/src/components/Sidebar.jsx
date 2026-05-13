@@ -2,6 +2,7 @@ import React from 'react'
 import { NavLink } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { LayoutDashboard, Users, Music, Calendar, LogOut, Sparkles } from 'lucide-react'
+import { Info } from 'lucide-react'
 
 const Sidebar = ({ userRole, onLogout }) => {
   const menuItems = [
@@ -9,6 +10,7 @@ const Sidebar = ({ userRole, onLogout }) => {
     { path: '/groups', icon: Users, label: 'Группы', roles: ['admin', 'manager'] },
     { path: '/songs', icon: Music, label: 'Песни', roles: ['admin', 'manager'] },
     { path: '/tours', icon: Calendar, label: 'Гастроли', roles: ['admin', 'manager'] },
+    { path: '/info', icon: Info, label: 'Инфо портал', roles: ['admin', 'manager'] }
   ]
 
   return (

@@ -7,6 +7,7 @@ import GroupsManagement from './components/GroupsManagement'
 import SongsManagement from './components/SongsManagement'
 import ToursManagement from './components/ToursManagement'
 import Sidebar from './components/Sidebar'
+import VueMicrofrontend from './components/VueMicrofrontend'
 
 function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false)
@@ -49,6 +50,7 @@ function App() {
             <Route path="/songs" element={<SongsManagement userRole={userRole} />} />
             <Route path="/tours" element={<ToursManagement userRole={userRole} />} />
             <Route path="*" element={<Navigate to="/" />} />
+            <Route path="/info" element={<VueMicrofrontend />} />
           </Routes>
         </div>
       </div>
