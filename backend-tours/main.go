@@ -23,6 +23,7 @@ type Tour struct {
     AvgTicketPrice float64 `json:"avg_ticket_price"`
     GroupID        int     `json:"group_id"`
     GroupName      string  `json:"group_name,omitempty"`
+    CreatedBy      int     `json:"created_by"`
     CreatedAt      string  `json:"created_at"`
 }
 
@@ -94,15 +95,48 @@ func validateDates(startDate, endDate string) bool {
     return !end.Before(start)
 }
 
+// Получение user_id из заголовка (передаётся из React)
+func getUserID(c *gin.Context) int {
+    userIDHeader := c.GetHeader("X-User-Id")
+    if userIDHeader == "" {
+        return 0
+    }
+    userID, _ := strconv.Atoi(userIDHeader)
+    return userID
+}
+
 func getTours(c *gin.Context) {
-    query := `
-        SELECT t.*, g.name as group_name 
-        FROM tours t 
-        JOIN groups g ON t.group_id = g.id 
-        ORDER BY t.start_date DESC
-    `
-    rows, err := db.Query(query)
+    userID := getUserID(c)
+    userRole := c.GetHeader("X-User-Role")
+
+    var query string
+    var params []interface{}
+
+    if userRole == "admin" {
+        query = `
+            SELECT t.id, t.program_name, t.city, t.start_date, t.end_date, 
+                   t.avg_ticket_price, t.group_id, t.created_at, g.name as group_name,
+                   COALESCE(t.created_by, 1) as created_by
+            FROM tours t 
+            JOIN groups g ON t.group_id = g.id 
+            ORDER BY t.start_date DESC
+        `
+    } else {
+        query = `
+            SELECT t.id, t.program_name, t.city, t.start_date, t.end_date, 
+                   t.avg_ticket_price, t.group_id, t.created_at, g.name as group_name,
+                   COALESCE(t.created_by, 1) as created_by
+            FROM tours t 
+            JOIN groups g ON t.group_id = g.id 
+            WHERE COALESCE(t.created_by, 1) = $1
+            ORDER BY t.start_date DESC
+        `
+        params = append(params, userID)
+    }
+
+    rows, err := db.Query(query, params...)
     if err != nil {
+        log.Printf("Error querying tours: %v", err)
         c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
         return
     }
@@ -112,8 +146,9 @@ func getTours(c *gin.Context) {
     for rows.Next() {
         var tour Tour
         err := rows.Scan(&tour.ID, &tour.ProgramName, &tour.City, &tour.StartDate,
-            &tour.EndDate, &tour.AvgTicketPrice, &tour.GroupID, &tour.CreatedAt, &tour.GroupName)
+            &tour.EndDate, &tour.AvgTicketPrice, &tour.GroupID, &tour.CreatedAt, &tour.GroupName, &tour.CreatedBy)
         if err != nil {
+            log.Printf("Error scanning tour: %v", err)
             c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
             return
         }
@@ -124,6 +159,9 @@ func getTours(c *gin.Context) {
 }
 
 func getTour(c *gin.Context) {
+    userID := getUserID(c)
+    userRole := c.GetHeader("X-User-Role")
+
     id, err := strconv.Atoi(c.Param("id"))
     if err != nil {
         c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid tour ID"})
@@ -132,21 +170,29 @@ func getTour(c *gin.Context) {
 
     var tour Tour
     query := `
-        SELECT t.*, g.name as group_name 
+        SELECT t.id, t.program_name, t.city, t.start_date, t.end_date, 
+               t.avg_ticket_price, t.group_id, t.created_at, g.name as group_name,
+               COALESCE(t.created_by, 1) as created_by
         FROM tours t 
         JOIN groups g ON t.group_id = g.id 
         WHERE t.id = $1
     `
     err = db.QueryRow(query, id).Scan(&tour.ID, &tour.ProgramName, &tour.City,
         &tour.StartDate, &tour.EndDate, &tour.AvgTicketPrice, &tour.GroupID,
-        &tour.CreatedAt, &tour.GroupName)
+        &tour.CreatedAt, &tour.GroupName, &tour.CreatedBy)
 
     if err == sql.ErrNoRows {
         c.JSON(http.StatusNotFound, gin.H{"error": "Tour not found"})
         return
     }
     if err != nil {
+        log.Printf("Error getting tour: %v", err)
         c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+        return
+    }
+
+    if userRole != "admin" && tour.CreatedBy != userID {
+        c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
         return
     }
 
@@ -154,6 +200,9 @@ func getTour(c *gin.Context) {
 }
 
 func createTour(c *gin.Context) {
+    userID := getUserID(c)
+    userRole := c.GetHeader("X-User-Role")
+
     var tour TourCreate
     if err := c.ShouldBindJSON(&tour); err != nil {
         c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -165,40 +214,71 @@ func createTour(c *gin.Context) {
         return
     }
 
-    var exists bool
-    err := db.QueryRow("SELECT EXISTS(SELECT 1 FROM groups WHERE id = $1)", tour.GroupID).Scan(&exists)
+    // Проверяем существование группы и доступ
+    var groupCreatedBy int
+    err := db.QueryRow("SELECT COALESCE(created_by, 1) FROM groups WHERE id = $1", tour.GroupID).Scan(&groupCreatedBy)
+    if err == sql.ErrNoRows {
+        c.JSON(http.StatusNotFound, gin.H{"error": "Group not found"})
+        return
+    }
     if err != nil {
         c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
         return
     }
-    if !exists {
-        c.JSON(http.StatusNotFound, gin.H{"error": "Group not found"})
+
+    if userRole != "admin" && groupCreatedBy != userID {
+        c.JSON(http.StatusForbidden, gin.H{"error": "You can only add tours to your own groups"})
         return
     }
 
     var newTour Tour
     query := `
-        INSERT INTO tours (program_name, city, start_date, end_date, avg_ticket_price, group_id)
-        VALUES ($1, $2, $3, $4, $5, $6)
+        INSERT INTO tours (program_name, city, start_date, end_date, avg_ticket_price, group_id, created_by)
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
         RETURNING id, program_name, city, start_date, end_date, avg_ticket_price, group_id, created_at
     `
     err = db.QueryRow(query, tour.ProgramName, tour.City, tour.StartDate,
-        tour.EndDate, tour.AvgTicketPrice, tour.GroupID).Scan(
+        tour.EndDate, tour.AvgTicketPrice, tour.GroupID, userID).Scan(
         &newTour.ID, &newTour.ProgramName, &newTour.City, &newTour.StartDate,
         &newTour.EndDate, &newTour.AvgTicketPrice, &newTour.GroupID, &newTour.CreatedAt)
+    newTour.CreatedBy = userID
 
     if err != nil {
+        log.Printf("Error creating tour: %v", err)
         c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
         return
     }
+
+    // Получаем имя группы
+    db.QueryRow("SELECT name FROM groups WHERE id = $1", tour.GroupID).Scan(&newTour.GroupName)
 
     c.JSON(http.StatusCreated, newTour)
 }
 
 func updateTour(c *gin.Context) {
+    userID := getUserID(c)
+    userRole := c.GetHeader("X-User-Role")
+
     id, err := strconv.Atoi(c.Param("id"))
     if err != nil {
         c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid tour ID"})
+        return
+    }
+
+    // Проверяем существование и права
+    var createdBy int
+    err = db.QueryRow("SELECT COALESCE(created_by, 1) FROM tours WHERE id = $1", id).Scan(&createdBy)
+    if err == sql.ErrNoRows {
+        c.JSON(http.StatusNotFound, gin.H{"error": "Tour not found"})
+        return
+    }
+    if err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+        return
+    }
+
+    if userRole != "admin" && createdBy != userID {
+        c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
         return
     }
 
@@ -242,10 +322,19 @@ func updateTour(c *gin.Context) {
         paramCount++
     }
     if updates.GroupID != nil {
-        var exists bool
-        err := db.QueryRow("SELECT EXISTS(SELECT 1 FROM groups WHERE id = $1)", *updates.GroupID).Scan(&exists)
-        if err != nil || !exists {
+        // Проверяем доступ к новой группе
+        var groupCreatedBy int
+        err = db.QueryRow("SELECT COALESCE(created_by, 1) FROM groups WHERE id = $1", *updates.GroupID).Scan(&groupCreatedBy)
+        if err == sql.ErrNoRows {
             c.JSON(http.StatusNotFound, gin.H{"error": "Group not found"})
+            return
+        }
+        if err != nil {
+            c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+            return
+        }
+        if userRole != "admin" && groupCreatedBy != userID {
+            c.JSON(http.StatusForbidden, gin.H{"error": "You can only assign tours to your own groups"})
             return
         }
         query += fmt.Sprintf("group_id = $%d, ", paramCount)
@@ -265,7 +354,37 @@ func updateTour(c *gin.Context) {
     err = db.QueryRow(query, params...).Scan(&updatedTour.ID, &updatedTour.ProgramName, &updatedTour.City,
         &updatedTour.StartDate, &updatedTour.EndDate, &updatedTour.AvgTicketPrice,
         &updatedTour.GroupID, &updatedTour.CreatedAt)
+    updatedTour.CreatedBy = createdBy
 
+    if err == sql.ErrNoRows {
+        c.JSON(http.StatusNotFound, gin.H{"error": "Tour not found"})
+        return
+    }
+    if err != nil {
+        log.Printf("Error updating tour: %v", err)
+        c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+        return
+    }
+
+    // Получаем имя группы
+    db.QueryRow("SELECT name FROM groups WHERE id = $1", updatedTour.GroupID).Scan(&updatedTour.GroupName)
+
+    c.JSON(http.StatusOK, updatedTour)
+}
+
+func deleteTour(c *gin.Context) {
+    userID := getUserID(c)
+    userRole := c.GetHeader("X-User-Role")
+
+    id, err := strconv.Atoi(c.Param("id"))
+    if err != nil {
+        c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid tour ID"})
+        return
+    }
+
+    // Проверяем существование и права
+    var createdBy int
+    err = db.QueryRow("SELECT COALESCE(created_by, 1) FROM tours WHERE id = $1", id).Scan(&createdBy)
     if err == sql.ErrNoRows {
         c.JSON(http.StatusNotFound, gin.H{"error": "Tour not found"})
         return
@@ -275,18 +394,14 @@ func updateTour(c *gin.Context) {
         return
     }
 
-    c.JSON(http.StatusOK, updatedTour)
-}
-
-func deleteTour(c *gin.Context) {
-    id, err := strconv.Atoi(c.Param("id"))
-    if err != nil {
-        c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid tour ID"})
+    if userRole != "admin" && createdBy != userID {
+        c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
         return
     }
 
     result, err := db.Exec("DELETE FROM tours WHERE id = $1", id)
     if err != nil {
+        log.Printf("Error deleting tour: %v", err)
         c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
         return
     }
@@ -308,8 +423,8 @@ func main() {
 
     router.Use(cors.New(cors.Config{
         AllowOrigins:     []string{"*"},
-        AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
-        AllowHeaders:     []string{"Origin", "Content-Type", "Accept", "Authorization"},
+        AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+        AllowHeaders:     []string{"Origin", "Content-Type", "Accept", "Authorization", "X-User-Id", "X-User-Role"},
         ExposeHeaders:    []string{"Content-Length"},
         AllowCredentials: true,
     }))

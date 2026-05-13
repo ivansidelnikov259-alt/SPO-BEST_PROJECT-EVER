@@ -5,7 +5,7 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 import axios from 'axios'
 import toast from 'react-hot-toast'
 
-const Dashboard = ({ userRole }) => {
+const Dashboard = () => {
   const [stats, setStats] = useState({ groups: 0, songs: 0, tours: 0 })
   const [popularGroup, setPopularGroup] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -18,6 +18,9 @@ const Dashboard = ({ userRole }) => {
 
   const fetchDashboardData = async () => {
     const token = getToken()
+    const userRole = localStorage.getItem('userRole')
+    const userId = localStorage.getItem('userId')
+    
     if (!token) {
       setLoading(false)
       return
@@ -31,7 +34,13 @@ const Dashboard = ({ userRole }) => {
         axios.get('http://localhost:8002/songs', {
           headers: { Authorization: `Bearer ${token}` }
         }),
-        axios.get('http://localhost:8003/api/tours'),
+        axios.get('http://localhost:8003/api/tours', {
+          headers: { 
+            Authorization: `Bearer ${token}`,
+            'X-User-Id': userId,
+            'X-User-Role': userRole
+          }
+        }),
         axios.get('http://localhost:8001/groups/popular/top')
       ])
       
@@ -203,7 +212,7 @@ const Dashboard = ({ userRole }) => {
               </div>
               {popularGroup.repertoire && popularGroup.repertoire.length > 0 && (
                 <div className="mt-4 pt-4 border-t border-white/10">
-                  <p className="text-gray-400 text-sm">Репертуар: {popularGroup.repertoire.join(', ')}</p>
+                  <p className="text-gray-400 text-sm">Репертуар: {popularGroup.repertoire.slice(0, 3).join(', ')}{popularGroup.repertoire.length > 3 ? '...' : ''}</p>
                 </div>
               )}
             </div>

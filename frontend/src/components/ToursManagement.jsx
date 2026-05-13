@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Plus, Edit, Trash2, Search, Calendar, MapPin, DollarSign, Music, X } from 'lucide-react'
+import { Plus, Edit, Trash2, Search, Calendar, MapPin, DollarSign, X } from 'lucide-react'
 import axios from 'axios'
 import toast from 'react-hot-toast'
+import { useAuth } from '../context/AuthContext'
 
-const ToursManagement = ({ userRole }) => {
+const ToursManagement = () => {
+  const { user, isAdmin, userId } = useAuth()
   const [tours, setTours] = useState([])
   const [groups, setGroups] = useState([])
   const [loading, setLoading] = useState(true)
@@ -22,6 +24,13 @@ const ToursManagement = ({ userRole }) => {
   })
 
   const getToken = () => localStorage.getItem('token')
+  const getUserRole = () => localStorage.getItem('userRole')
+  const getUserId = () => localStorage.getItem('userId')
+
+  const canEditTour = (tour) => {
+    if (!tour) return false
+    return isAdmin || tour.created_by === parseInt(getUserId())
+  }
 
   useEffect(() => {
     fetchData()
@@ -29,18 +38,29 @@ const ToursManagement = ({ userRole }) => {
 
   const fetchData = async () => {
     const token = getToken()
+    const userRole = getUserRole()
+    const userIdNum = getUserId()
+    
     try {
       const [toursRes, groupsRes] = await Promise.all([
-        axios.get('http://localhost:8003/api/tours'),
+        axios.get('http://localhost:8003/api/tours', {
+          headers: { 
+            Authorization: `Bearer ${token}`,
+            'X-User-Id': userIdNum,
+            'X-User-Role': userRole
+          }
+        }),
         axios.get('http://localhost:8001/groups', {
           headers: { Authorization: `Bearer ${token}` }
         })
       ])
-      setTours(toursRes.data)
-      setGroups(groupsRes.data)
+      setTours(toursRes.data || [])
+      setGroups(groupsRes.data || [])
     } catch (error) {
       console.error('Error fetching data:', error)
       toast.error('Ошибка загрузки данных')
+      setTours([])
+      setGroups([])
     } finally {
       setLoading(false)
     }
@@ -49,12 +69,27 @@ const ToursManagement = ({ userRole }) => {
   const handleSubmit = async (e) => {
     e.preventDefault()
     const token = getToken()
+    const userRole = getUserRole()
+    const userIdNum = getUserId()
+    
     try {
       if (editingTour) {
-        await axios.put(`http://localhost:8003/api/tours/${editingTour.id}`, formData)
+        await axios.put(`http://localhost:8003/api/tours/${editingTour.id}`, formData, {
+          headers: { 
+            Authorization: `Bearer ${token}`,
+            'X-User-Id': userIdNum,
+            'X-User-Role': userRole
+          }
+        })
         toast.success('Гастроли обновлены')
       } else {
-        await axios.post('http://localhost:8003/api/tours', formData)
+        await axios.post('http://localhost:8003/api/tours', formData, {
+          headers: { 
+            Authorization: `Bearer ${token}`,
+            'X-User-Id': userIdNum,
+            'X-User-Role': userRole
+          }
+        })
         toast.success('Гастроли созданы')
       }
       fetchData()
@@ -67,8 +102,18 @@ const ToursManagement = ({ userRole }) => {
 
   const handleDelete = async (id, programName) => {
     if (window.confirm(`Удалить гастроли "${programName}"?`)) {
+      const token = getToken()
+      const userRole = getUserRole()
+      const userIdNum = getUserId()
+      
       try {
-        await axios.delete(`http://localhost:8003/api/tours/${id}`)
+        await axios.delete(`http://localhost:8003/api/tours/${id}`, {
+          headers: { 
+            Authorization: `Bearer ${token}`,
+            'X-User-Id': userIdNum,
+            'X-User-Role': userRole
+          }
+        })
         toast.success('Гастроли удалены')
         fetchData()
       } catch (error) {
@@ -82,12 +127,12 @@ const ToursManagement = ({ userRole }) => {
     if (tour) {
       setEditingTour(tour)
       setFormData({
-        program_name: tour.program_name,
-        city: tour.city,
-        start_date: tour.start_date,
-        end_date: tour.end_date,
-        avg_ticket_price: tour.avg_ticket_price,
-        group_id: tour.group_id
+        program_name: tour.program_name || '',
+        city: tour.city || '',
+        start_date: tour.start_date || '',
+        end_date: tour.end_date || '',
+        avg_ticket_price: tour.avg_ticket_price || 0,
+        group_id: tour.group_id || ''
       })
     } else {
       setEditingTour(null)
@@ -108,11 +153,13 @@ const ToursManagement = ({ userRole }) => {
     setEditingTour(null)
   }
 
-  const filteredTours = tours.filter(tour =>
-    tour.program_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    tour.city?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    tour.group_name?.toLowerCase().includes(searchTerm.toLowerCase())
-  )
+  const filteredTours = tours && tours.length > 0 
+    ? tours.filter(tour =>
+        tour.program_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        tour.city?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        tour.group_name?.toLowerCase().includes(searchTerm.toLowerCase())
+      )
+    : []
 
   if (loading) {
     return (
@@ -153,66 +200,79 @@ const ToursManagement = ({ userRole }) => {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <AnimatePresence>
-          {filteredTours.map((tour, index) => (
-            <motion.div
-              key={tour.id}
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.9 }}
-              transition={{ delay: index * 0.05 }}
-              className="glass-card-light p-6 hover:border-purple-500/50 transition-all duration-300 cursor-pointer"
-              onClick={() => setSelectedTour(tour)}
-            >
-              <div className="flex justify-between items-start">
-                <div className="flex items-start gap-3">
-                  <Calendar className="w-8 h-8 text-purple-400 mt-1" />
-                  <div>
-                    <h3 className="text-xl font-bold text-white">{tour.program_name}</h3>
-                    <p className="text-purple-300 text-sm">{tour.group_name}</p>
+      {filteredTours.length === 0 && !loading ? (
+        <div className="text-center py-12 glass-card">
+          <Calendar className="w-16 h-16 text-gray-500 mx-auto mb-4" />
+          <p className="text-gray-400">Нет гастролей</p>
+          <button
+            onClick={() => openModal()}
+            className="mt-4 btn-primary px-4 py-2 rounded-xl text-white"
+          >
+            Создать первую гастроль
+          </button>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <AnimatePresence>
+            {filteredTours.map((tour, index) => (
+              <motion.div
+                key={tour.id}
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.9 }}
+                transition={{ delay: index * 0.05 }}
+                className="glass-card-light p-6 hover:border-purple-500/50 transition-all duration-300 cursor-pointer"
+                onClick={() => setSelectedTour(tour)}
+              >
+                <div className="flex justify-between items-start">
+                  <div className="flex items-start gap-3">
+                    <Calendar className="w-8 h-8 text-purple-400 mt-1" />
+                    <div>
+                      <h3 className="text-xl font-bold text-white">{tour.program_name}</h3>
+                      <p className="text-purple-300 text-sm">{tour.group_name}</p>
+                    </div>
                   </div>
+                  {canEditTour(tour) && (
+                    <div className="flex gap-2" onClick={(e) => e.stopPropagation()}>
+                      <button
+                        onClick={() => openModal(tour)}
+                        className="p-2 hover:bg-white/10 rounded-lg transition-colors"
+                      >
+                        <Edit className="w-4 h-4 text-blue-400" />
+                      </button>
+                      <button
+                        onClick={() => handleDelete(tour.id, tour.program_name)}
+                        className="p-2 hover:bg-white/10 rounded-lg transition-colors"
+                      >
+                        <Trash2 className="w-4 h-4 text-red-400" />
+                      </button>
+                    </div>
+                  )}
                 </div>
-                {userRole === 'admin' && (
-                  <div className="flex gap-2" onClick={(e) => e.stopPropagation()}>
-                    <button
-                      onClick={() => openModal(tour)}
-                      className="p-2 hover:bg-white/10 rounded-lg transition-colors"
-                    >
-                      <Edit className="w-4 h-4 text-blue-400" />
-                    </button>
-                    <button
-                      onClick={() => handleDelete(tour.id, tour.program_name)}
-                      className="p-2 hover:bg-white/10 rounded-lg transition-colors"
-                    >
-                      <Trash2 className="w-4 h-4 text-red-400" />
-                    </button>
-                  </div>
-                )}
-              </div>
 
-              <div className="mt-4 grid grid-cols-2 gap-3">
-                <div className="flex items-center gap-2 text-gray-300">
-                  <MapPin className="w-4 h-4 text-green-400" />
-                  <span className="text-sm">Город: {tour.city}</span>
+                <div className="mt-4 grid grid-cols-2 gap-3">
+                  <div className="flex items-center gap-2 text-gray-300">
+                    <MapPin className="w-4 h-4 text-green-400" />
+                    <span className="text-sm">Город: {tour.city}</span>
+                  </div>
+                  <div className="flex items-center gap-2 text-gray-300">
+                    <DollarSign className="w-4 h-4 text-yellow-400" />
+                    <span className="text-sm">Цена билета: ${tour.avg_ticket_price}</span>
+                  </div>
+                  <div className="flex items-center gap-2 text-gray-300">
+                    <Calendar className="w-4 h-4 text-blue-400" />
+                    <span className="text-sm">С: {new Date(tour.start_date).toLocaleDateString()}</span>
+                  </div>
+                  <div className="flex items-center gap-2 text-gray-300">
+                    <Calendar className="w-4 h-4 text-red-400" />
+                    <span className="text-sm">По: {new Date(tour.end_date).toLocaleDateString()}</span>
+                  </div>
                 </div>
-                <div className="flex items-center gap-2 text-gray-300">
-                  <DollarSign className="w-4 h-4 text-yellow-400" />
-                  <span className="text-sm">Цена билета: ${tour.avg_ticket_price}</span>
-                </div>
-                <div className="flex items-center gap-2 text-gray-300">
-                  <Calendar className="w-4 h-4 text-blue-400" />
-                  <span className="text-sm">С: {new Date(tour.start_date).toLocaleDateString()}</span>
-                </div>
-                <div className="flex items-center gap-2 text-gray-300">
-                  <Calendar className="w-4 h-4 text-red-400" />
-                  <span className="text-sm">По: {new Date(tour.end_date).toLocaleDateString()}</span>
-                </div>
-              </div>
-            </motion.div>
-          ))}
-        </AnimatePresence>
-      </div>
+              </motion.div>
+            ))}
+          </AnimatePresence>
+        </div>
+      )}
 
       {/* Модальное окно для деталей гастролей */}
       <AnimatePresence>
@@ -297,7 +357,8 @@ const ToursManagement = ({ userRole }) => {
                     className="input-dark w-full px-4 py-2 text-white"
                     required
                   >
-                    {groups.map(group => (
+                    <option value="">Выберите группу</option>
+                    {groups && groups.map(group => (
                       <option key={group.id} value={group.id}>{group.name}</option>
                     ))}
                   </select>
