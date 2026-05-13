@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
-import { Users, Music, Calendar, TrendingUp, Star, MapPin, Clock, Trophy } from 'lucide-react'
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts'
+import { Users, Music, Calendar, TrendingUp, Star, Trophy } from 'lucide-react'
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts'
 import axios from 'axios'
 import toast from 'react-hot-toast'
 
@@ -10,22 +10,35 @@ const Dashboard = ({ userRole }) => {
   const [popularGroup, setPopularGroup] = useState(null)
   const [loading, setLoading] = useState(true)
 
+  const getToken = () => localStorage.getItem('token')
+
   useEffect(() => {
     fetchDashboardData()
   }, [])
 
   const fetchDashboardData = async () => {
+    const token = getToken()
+    if (!token) {
+      setLoading(false)
+      return
+    }
+
     try {
       const [groupsRes, songsRes, toursRes, popularRes] = await Promise.all([
-        axios.get('http://localhost:8001/groups'),
-        axios.get('http://localhost:8002/songs'),
+        axios.get('http://localhost:8001/groups', {
+          headers: { Authorization: `Bearer ${token}` }
+        }),
+        axios.get('http://localhost:8002/songs', {
+          headers: { Authorization: `Bearer ${token}` }
+        }),
         axios.get('http://localhost:8003/api/tours'),
         axios.get('http://localhost:8001/groups/popular/top')
       ])
+      
       setStats({
-        groups: groupsRes.data.length,
-        songs: songsRes.data.length,
-        tours: toursRes.data.length
+        groups: groupsRes.data?.length || 0,
+        songs: songsRes.data?.length || 0,
+        tours: toursRes.data?.length || 0
       })
       setPopularGroup(popularRes.data)
     } catch (error) {
@@ -187,33 +200,10 @@ const Dashboard = ({ userRole }) => {
                   <p className="text-gray-400 text-sm">Год основания</p>
                   <p className="text-2xl font-bold text-white">{popularGroup.formation_year}</p>
                 </div>
-                <div className="text-center">
-                  <p className="text-gray-400 text-sm">Песен</p>
-                  <p className="text-2xl font-bold text-white">{popularGroup.song_count || 0}</p>
-                </div>
               </div>
-              
-              {/* Репертуар популярной группы */}
               {popularGroup.repertoire && popularGroup.repertoire.length > 0 && (
-                <div className="mt-6 pt-4 border-t border-white/10">
-                  <h4 className="text-md font-semibold text-white mb-3 flex items-center gap-2 justify-center">
-                    <Music className="w-4 h-4 text-purple-400" />
-                    Репертуар ({popularGroup.repertoire.length} {popularGroup.repertoire.length === 1 ? 'песня' : popularGroup.repertoire.length < 5 ? 'песни' : 'песен'})
-                  </h4>
-                  <div className="flex flex-wrap gap-2 justify-center max-h-32 overflow-y-auto">
-                    {popularGroup.repertoire.map((song, idx) => (
-                      <span key={idx} className="px-3 py-1 bg-white/5 rounded-full text-sm text-gray-300 hover:bg-purple-500/20 transition-colors">
-                        {song}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              )}
-              
-              {/* Описание группы */}
-              {popularGroup.description && (
                 <div className="mt-4 pt-4 border-t border-white/10">
-                  <p className="text-gray-400 text-sm italic">"{popularGroup.description}"</p>
+                  <p className="text-gray-400 text-sm">Репертуар: {popularGroup.repertoire.join(', ')}</p>
                 </div>
               )}
             </div>

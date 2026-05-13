@@ -15,15 +15,15 @@ import (
 )
 
 type Tour struct {
-    ID              int        `json:"id"`
-    ProgramName     string     `json:"program_name"`
-    City            string     `json:"city"`
-    StartDate       string     `json:"start_date"`
-    EndDate         string     `json:"end_date"`
-    AvgTicketPrice  float64    `json:"avg_ticket_price"`
-    GroupID         int        `json:"group_id"`
-    GroupName       string     `json:"group_name,omitempty"`
-    CreatedAt       time.Time  `json:"created_at"`
+    ID             int     `json:"id"`
+    ProgramName    string  `json:"program_name"`
+    City           string  `json:"city"`
+    StartDate      string  `json:"start_date"`
+    EndDate        string  `json:"end_date"`
+    AvgTicketPrice float64 `json:"avg_ticket_price"`
+    GroupID        int     `json:"group_id"`
+    GroupName      string  `json:"group_name,omitempty"`
+    CreatedAt      string  `json:"created_at"`
 }
 
 type TourCreate struct {
@@ -31,7 +31,7 @@ type TourCreate struct {
     City           string  `json:"city" binding:"required"`
     StartDate      string  `json:"start_date" binding:"required"`
     EndDate        string  `json:"end_date" binding:"required"`
-    AvgTicketPrice float64 `json:"avg_ticket_price" binding:"required,min=0"`
+    AvgTicketPrice float64 `json:"avg_ticket_price" binding:"required"`
     GroupID        int     `json:"group_id" binding:"required"`
 }
 
@@ -82,7 +82,7 @@ func initDB() {
         log.Fatal("Failed to ping database:", err)
     }
 
-    log.Println("Database connected successfully")
+    log.Println("✅ Database connected successfully")
 }
 
 func validateDates(startDate, endDate string) bool {
@@ -95,23 +95,13 @@ func validateDates(startDate, endDate string) bool {
 }
 
 func getTours(c *gin.Context) {
-    groupID := c.Query("group_id")
     query := `
         SELECT t.*, g.name as group_name 
         FROM tours t 
-        JOIN groups g ON t.group_id = g.id
+        JOIN groups g ON t.group_id = g.id 
+        ORDER BY t.start_date DESC
     `
-    var rows *sql.Rows
-    var err error
-
-    if groupID != "" {
-        query += " WHERE t.group_id = $1 ORDER BY t.start_date DESC"
-        rows, err = db.Query(query, groupID)
-    } else {
-        query += " ORDER BY t.start_date DESC"
-        rows, err = db.Query(query)
-    }
-
+    rows, err := db.Query(query)
     if err != nil {
         c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
         return
@@ -160,35 +150,7 @@ func getTour(c *gin.Context) {
         return
     }
 
-    // Get songs for this tour
-    songsQuery := `
-        SELECT s.id, s.title, s.composer, s.lyricist 
-        FROM tour_songs ts 
-        JOIN songs s ON ts.song_id = s.id 
-        WHERE ts.tour_id = $1
-    `
-    rows, err := db.Query(songsQuery, id)
-    if err == nil {
-        defer rows.Close()
-        var songs []gin.H
-        for rows.Next() {
-            var songID int
-            var title, composer, lyricist string
-            rows.Scan(&songID, &title, &composer, &lyricist)
-            songs = append(songs, gin.H{
-                "id":         songID,
-                "title":      title,
-                "composer":   composer,
-                "lyricist":   lyricist,
-            })
-        }
-        c.JSON(http.StatusOK, gin.H{
-            "tour":  tour,
-            "songs": songs,
-        })
-    } else {
-        c.JSON(http.StatusOK, gin.H{"tour": tour})
-    }
+    c.JSON(http.StatusOK, tour)
 }
 
 func createTour(c *gin.Context) {
@@ -338,46 +300,6 @@ func deleteTour(c *gin.Context) {
     c.JSON(http.StatusOK, gin.H{"message": "Tour deleted successfully"})
 }
 
-func addSongToTour(c *gin.Context) {
-    tourID, _ := strconv.Atoi(c.Param("tourId"))
-    songID, _ := strconv.Atoi(c.Param("songId"))
-
-    _, err := db.Exec("INSERT INTO tour_songs (tour_id, song_id) VALUES ($1, $2) ON CONFLICT DO NOTHING", tourID, songID)
-    if err != nil {
-        c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-        return
-    }
-
-    c.JSON(http.StatusCreated, gin.H{"message": "Song added to tour"})
-}
-
-func getToursByCity(c *gin.Context) {
-    city := c.Param("city")
-    query := `
-        SELECT t.*, g.name as group_name 
-        FROM tours t 
-        JOIN groups g ON t.group_id = g.id 
-        WHERE t.city ILIKE $1 
-        ORDER BY t.start_date
-    `
-    rows, err := db.Query(query, "%"+city+"%")
-    if err != nil {
-        c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-        return
-    }
-    defer rows.Close()
-
-    var tours []Tour
-    for rows.Next() {
-        var tour Tour
-        rows.Scan(&tour.ID, &tour.ProgramName, &tour.City, &tour.StartDate,
-            &tour.EndDate, &tour.AvgTicketPrice, &tour.GroupID, &tour.CreatedAt, &tour.GroupName)
-        tours = append(tours, tour)
-    }
-
-    c.JSON(http.StatusOK, tours)
-}
-
 func main() {
     initDB()
     defer db.Close()
@@ -399,8 +321,6 @@ func main() {
         api.POST("/tours", createTour)
         api.PUT("/tours/:id", updateTour)
         api.DELETE("/tours/:id", deleteTour)
-        api.POST("/tours/:tourId/songs/:songId", addSongToTour)
-        api.GET("/tours/city/:city", getToursByCity)
     }
 
     port := os.Getenv("PORT")
@@ -408,5 +328,6 @@ func main() {
         port = "8003"
     }
 
+    log.Printf("🚀 Tours microservice running on port %s", port)
     router.Run(":" + port)
 }

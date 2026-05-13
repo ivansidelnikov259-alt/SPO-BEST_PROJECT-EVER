@@ -3,8 +3,10 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { Plus, Edit, Trash2, Search, Music, User, PenTool, Calendar } from 'lucide-react'
 import axios from 'axios'
 import toast from 'react-hot-toast'
+import { useAuth } from '../context/AuthContext'
 
-const SongsManagement = ({ userRole }) => {
+const SongsManagement = () => {
+  const { user, isAdmin, userId } = useAuth()
   const [songs, setSongs] = useState([])
   const [groups, setGroups] = useState([])
   const [loading, setLoading] = useState(true)
@@ -25,26 +27,37 @@ const SongsManagement = ({ userRole }) => {
     group_id: ''
   })
 
+  const getToken = () => localStorage.getItem('token')
+
+  const canEditSong = (song) => {
+    return isAdmin || song.created_by === userId
+  }
+
   useEffect(() => {
     loadData()
   }, [])
 
   const loadData = async () => {
+    const token = getToken()
     try {
       const [songsRes, groupsRes] = await Promise.all([
-        axios.get('http://localhost:8002/songs'),
-        axios.get('http://localhost:8001/groups')
+        axios.get('http://localhost:8002/songs', {
+          headers: { Authorization: `Bearer ${token}` }
+        }),
+        axios.get('http://localhost:8001/groups', {
+          headers: { Authorization: `Bearer ${token}` }
+        })
       ])
       setSongs(songsRes.data)
       setGroups(groupsRes.data)
     } catch (error) {
+      console.error('Error loading data:', error)
       toast.error('Ошибка загрузки данных')
     } finally {
       setLoading(false)
     }
   }
 
-  // Функция фильтрации - ПРОСТАЯ И РАБОЧАЯ
   const getFilteredSongs = () => {
     if (searchText === '') {
       return songs
@@ -73,29 +86,39 @@ const SongsManagement = ({ userRole }) => {
 
   const handleSubmit = async (e) => {
     e.preventDefault()
+    const token = getToken()
     try {
       if (editingSong) {
-        await axios.put(`http://localhost:8002/songs/${editingSong.id}`, formData)
+        await axios.put(`http://localhost:8002/songs/${editingSong.id}`, formData, {
+          headers: { Authorization: `Bearer ${token}` }
+        })
         toast.success('Песня обновлена')
       } else {
-        await axios.post('http://localhost:8002/songs', formData)
+        await axios.post('http://localhost:8002/songs', formData, {
+          headers: { Authorization: `Bearer ${token}` }
+        })
         toast.success('Песня создана')
       }
       loadData()
       closeModal()
     } catch (error) {
-      toast.error('Ошибка сохранения')
+      console.error('Error saving song:', error)
+      toast.error(error.response?.data?.error || 'Ошибка сохранения')
     }
   }
 
   const handleDelete = async (id, title) => {
     if (window.confirm(`Удалить песню "${title}"?`)) {
+      const token = getToken()
       try {
-        await axios.delete(`http://localhost:8002/songs/${id}`)
+        await axios.delete(`http://localhost:8002/songs/${id}`, {
+          headers: { Authorization: `Bearer ${token}` }
+        })
         toast.success('Песня удалена')
         loadData()
       } catch (error) {
-        toast.error('Ошибка удаления')
+        console.error('Error deleting song:', error)
+        toast.error(error.response?.data?.error || 'Ошибка удаления')
       }
     }
   }
@@ -109,7 +132,7 @@ const SongsManagement = ({ userRole }) => {
         lyricist: song.lyricist,
         creation_year: song.creation_year,
         singer: song.singer,
-        group_id: song.group_id
+        group_id: song.group_id || ''
       })
     } else {
       setEditingSong(null)
@@ -119,7 +142,7 @@ const SongsManagement = ({ userRole }) => {
         lyricist: '',
         creation_year: new Date().getFullYear(),
         singer: '',
-        group_id: groups[0]?.id || ''
+        group_id: ''
       })
     }
     setIsModalOpen(true)
@@ -131,22 +154,28 @@ const SongsManagement = ({ userRole }) => {
   }
 
   const showComposerSongs = async (composer) => {
+    const token = getToken()
     try {
-      const response = await axios.get(`http://localhost:8002/songs/composer/${encodeURIComponent(composer)}`)
+      const response = await axios.get(`http://localhost:8002/songs/composer/${encodeURIComponent(composer)}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      })
       setComposerSongs(response.data)
       setSelectedComposer(composer)
     } catch (error) {
-      toast.error('Ошибка загрузки')
+      toast.error('Ошибка загрузки песен композитора')
     }
   }
 
   const showSingerSongs = async (singer) => {
+    const token = getToken()
     try {
-      const response = await axios.get(`http://localhost:8002/songs/singer/${encodeURIComponent(singer)}`)
+      const response = await axios.get(`http://localhost:8002/songs/singer/${encodeURIComponent(singer)}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      })
       setSingerSongs(response.data)
       setSelectedSinger(singer)
     } catch (error) {
-      toast.error('Ошибка загрузки')
+      toast.error('Ошибка загрузки песен исполнителя')
     }
   }
 
@@ -230,7 +259,7 @@ const SongsManagement = ({ userRole }) => {
                     <p className="text-purple-300 text-sm">{song.group_name || 'Без группы'}</p>
                   </div>
                 </div>
-                {userRole === 'admin' && (
+                {canEditSong(song) && (
                   <div className="flex gap-2">
                     <button onClick={() => openModal(song)} className="p-2 hover:bg-white/10 rounded-lg">
                       <Edit className="w-4 h-4 text-blue-400" />
@@ -284,6 +313,9 @@ const SongsManagement = ({ userRole }) => {
                   <p className="text-gray-400 text-sm">{song.singer} ({song.creation_year})</p>
                 </div>
               ))}
+              {composerSongs.length === 0 && (
+                <p className="text-gray-400 text-center py-8">Нет песен этого композитора</p>
+              )}
             </div>
             <button onClick={() => setSelectedComposer(null)} className="mt-6 btn-primary px-6 py-2 rounded-xl text-white">Закрыть</button>
           </div>
@@ -303,6 +335,9 @@ const SongsManagement = ({ userRole }) => {
                   <p className="text-gray-400 text-sm">{song.composer} ({song.creation_year})</p>
                 </div>
               ))}
+              {singerSongs.length === 0 && (
+                <p className="text-gray-400 text-center py-8">Нет песен этого исполнителя</p>
+              )}
             </div>
             <button onClick={() => setSelectedSinger(null)} className="mt-6 btn-primary px-6 py-2 rounded-xl text-white">Закрыть</button>
           </div>
@@ -313,15 +348,59 @@ const SongsManagement = ({ userRole }) => {
       {isModalOpen && (
         <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={closeModal}>
           <div className="bg-gradient-to-br from-gray-900 to-gray-800 rounded-2xl w-full max-w-md p-6" onClick={(e) => e.stopPropagation()}>
-            <h2 className="text-2xl font-bold text-white mb-4">{editingSong ? 'Редактировать' : 'Новая песня'}</h2>
+            <h2 className="text-2xl font-bold text-white mb-4">{editingSong ? 'Редактировать песню' : 'Новая песня'}</h2>
             <form onSubmit={handleSubmit} className="space-y-4">
-              <input type="text" placeholder="Название" value={formData.title} onChange={(e) => setFormData({...formData, title: e.target.value})} className="input-dark w-full px-4 py-2 text-white" required />
-              <input type="text" placeholder="Композитор" value={formData.composer} onChange={(e) => setFormData({...formData, composer: e.target.value})} className="input-dark w-full px-4 py-2 text-white" required />
-              <input type="text" placeholder="Автор текста" value={formData.lyricist} onChange={(e) => setFormData({...formData, lyricist: e.target.value})} className="input-dark w-full px-4 py-2 text-white" required />
-              <input type="number" placeholder="Год создания" value={formData.creation_year} onChange={(e) => setFormData({...formData, creation_year: parseInt(e.target.value)})} className="input-dark w-full px-4 py-2 text-white" required />
-              <input type="text" placeholder="Исполнитель" value={formData.singer} onChange={(e) => setFormData({...formData, singer: e.target.value})} className="input-dark w-full px-4 py-2 text-white" required />
-              <select value={formData.group_id} onChange={(e) => setFormData({...formData, group_id: parseInt(e.target.value)})} className="input-dark w-full px-4 py-2 text-white">
-                {groups.map(g => <option key={g.id} value={g.id}>{g.name}</option>)}
+              <input
+                type="text"
+                placeholder="Название"
+                value={formData.title}
+                onChange={(e) => setFormData({...formData, title: e.target.value})}
+                className="input-dark w-full px-4 py-2 text-white"
+                required
+              />
+              <input
+                type="text"
+                placeholder="Композитор"
+                value={formData.composer}
+                onChange={(e) => setFormData({...formData, composer: e.target.value})}
+                className="input-dark w-full px-4 py-2 text-white"
+                required
+              />
+              <input
+                type="text"
+                placeholder="Автор текста"
+                value={formData.lyricist}
+                onChange={(e) => setFormData({...formData, lyricist: e.target.value})}
+                className="input-dark w-full px-4 py-2 text-white"
+                required
+              />
+              <input
+                type="number"
+                placeholder="Год создания"
+                value={formData.creation_year}
+                onChange={(e) => setFormData({...formData, creation_year: parseInt(e.target.value)})}
+                className="input-dark w-full px-4 py-2 text-white"
+                min="1900"
+                max={new Date().getFullYear()}
+                required
+              />
+              <input
+                type="text"
+                placeholder="Исполнитель"
+                value={formData.singer}
+                onChange={(e) => setFormData({...formData, singer: e.target.value})}
+                className="input-dark w-full px-4 py-2 text-white"
+                required
+              />
+              <select
+                value={formData.group_id}
+                onChange={(e) => setFormData({...formData, group_id: e.target.value ? parseInt(e.target.value) : null})}
+                className="input-dark w-full px-4 py-2 text-white"
+              >
+                <option value="">Без группы</option>
+                {groups.map(g => (
+                  <option key={g.id} value={g.id}>{g.name}</option>
+                ))}
               </select>
               <div className="flex gap-3 pt-4">
                 <button type="button" onClick={closeModal} className="flex-1 btn-secondary py-2 rounded-xl text-white">Отмена</button>

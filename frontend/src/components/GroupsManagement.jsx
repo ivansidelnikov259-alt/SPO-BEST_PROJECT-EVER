@@ -1,13 +1,12 @@
 import React, { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { 
-  Plus, Edit, Trash2, Search, Music, Calendar, MapPin, 
-  TrendingUp, Users, X, Info, Mic, User as UserIcon 
-} from 'lucide-react'
+import { Plus, Edit, Trash2, Search, Music, Calendar, TrendingUp, Users, X, Info, Mic } from 'lucide-react'
 import axios from 'axios'
 import toast from 'react-hot-toast'
+import { useAuth } from '../context/AuthContext'
 
-const GroupsManagement = ({ userRole }) => {
+const GroupsManagement = () => {
+  const { user, isAdmin, userId } = useAuth()
   const [groups, setGroups] = useState([])
   const [songs, setSongs] = useState([])
   const [loading, setLoading] = useState(true)
@@ -35,10 +34,11 @@ const GroupsManagement = ({ userRole }) => {
     joined_year: ''
   })
 
-  // Простые иконки для ролей (без дополнительных импортов)
+  const getToken = () => localStorage.getItem('token')
+
   const getRoleIcon = (role) => {
     if (role.includes('Вокал')) return '🎤'
-    if (role.includes('Гитара')) return '🎸'
+    if (role.includes('Гитар')) return '🎸'
     if (role.includes('Барабан')) return '🥁'
     if (role.includes('Клавиш')) return '🎹'
     if (role.includes('Бас')) return '🎸'
@@ -52,7 +52,10 @@ const GroupsManagement = ({ userRole }) => {
 
   const fetchGroups = async () => {
     try {
-      const response = await axios.get('http://localhost:8001/groups')
+      const token = getToken()
+      const response = await axios.get('http://localhost:8001/groups', {
+        headers: { Authorization: `Bearer ${token}` }
+      })
       setGroups(response.data)
     } catch (error) {
       console.error('Error fetching groups:', error)
@@ -64,7 +67,10 @@ const GroupsManagement = ({ userRole }) => {
 
   const fetchAllSongs = async () => {
     try {
-      const response = await axios.get('http://localhost:8002/songs')
+      const token = getToken()
+      const response = await axios.get('http://localhost:8002/songs', {
+        headers: { Authorization: `Bearer ${token}` }
+      })
       setSongs(response.data)
     } catch (error) {
       console.error('Error fetching songs:', error)
@@ -73,7 +79,10 @@ const GroupsManagement = ({ userRole }) => {
 
   const fetchGroupSongs = async (groupId) => {
     try {
-      const response = await axios.get(`http://localhost:8002/songs?group_id=${groupId}`)
+      const token = getToken()
+      const response = await axios.get(`http://localhost:8002/songs/group/${groupId}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      })
       setGroupSongs(response.data)
       const notInGroup = songs.filter(song => song.group_id !== groupId)
       setAvailableSongs(notInGroup)
@@ -85,7 +94,10 @@ const GroupsManagement = ({ userRole }) => {
 
   const fetchGroupMembers = async (groupId) => {
     try {
-      const response = await axios.get(`http://localhost:8001/groups/${groupId}/members`)
+      const token = getToken()
+      const response = await axios.get(`http://localhost:8001/groups/${groupId}/members`, {
+        headers: { Authorization: `Bearer ${token}` }
+      })
       setGroupMembers(response.data)
     } catch (error) {
       console.error('Error fetching group members:', error)
@@ -93,14 +105,23 @@ const GroupsManagement = ({ userRole }) => {
     }
   }
 
+  const canEditGroup = (group) => {
+    return isAdmin || group.created_by === userId
+  }
+
   const handleSubmit = async (e) => {
     e.preventDefault()
+    const token = getToken()
     try {
       if (editingGroup) {
-        await axios.put(`http://localhost:8001/groups/${editingGroup.id}`, formData)
+        await axios.put(`http://localhost:8001/groups/${editingGroup.id}`, formData, {
+          headers: { Authorization: `Bearer ${token}` }
+        })
         toast.success('Группа обновлена')
       } else {
-        await axios.post('http://localhost:8001/groups', formData)
+        await axios.post('http://localhost:8001/groups', formData, {
+          headers: { Authorization: `Bearer ${token}` }
+        })
         toast.success('Группа создана')
       }
       fetchGroups()
@@ -113,27 +134,35 @@ const GroupsManagement = ({ userRole }) => {
 
   const handleDelete = async (id, name) => {
     if (window.confirm(`Удалить группу "${name}"?`)) {
+      const token = getToken()
       try {
-        await axios.delete(`http://localhost:8001/groups/${id}`)
+        await axios.delete(`http://localhost:8001/groups/${id}`, {
+          headers: { Authorization: `Bearer ${token}` }
+        })
         toast.success('Группа удалена')
         fetchGroups()
       } catch (error) {
         console.error('Error deleting group:', error)
-        toast.error('Ошибка удаления')
+        toast.error(error.response?.data?.detail || 'Ошибка удаления')
       }
     }
   }
 
   const handleMemberSubmit = async (e) => {
     e.preventDefault()
+    const token = getToken()
     try {
       if (editingMember) {
-        await axios.put(`http://localhost:8001/groups/members/${editingMember.id}`, memberFormData)
+        await axios.put(`http://localhost:8001/groups/members/${editingMember.id}`, memberFormData, {
+          headers: { Authorization: `Bearer ${token}` }
+        })
         toast.success('Участник обновлен')
       } else {
         await axios.post('http://localhost:8001/groups/members', {
           ...memberFormData,
           group_id: selectedGroup.id
+        }, {
+          headers: { Authorization: `Bearer ${token}` }
         })
         toast.success('Участник добавлен')
       }
@@ -141,14 +170,17 @@ const GroupsManagement = ({ userRole }) => {
       closeMemberModal()
     } catch (error) {
       console.error('Error saving member:', error)
-      toast.error('Ошибка сохранения')
+      toast.error(error.response?.data?.detail || 'Ошибка сохранения')
     }
   }
 
   const handleDeleteMember = async (memberId, memberName) => {
     if (window.confirm(`Удалить участника "${memberName}"?`)) {
+      const token = getToken()
       try {
-        await axios.delete(`http://localhost:8001/groups/members/${memberId}`)
+        await axios.delete(`http://localhost:8001/groups/members/${memberId}`, {
+          headers: { Authorization: `Bearer ${token}` }
+        })
         toast.success('Участник удален')
         await fetchGroupMembers(selectedGroup.id)
       } catch (error) {
@@ -159,12 +191,15 @@ const GroupsManagement = ({ userRole }) => {
   }
 
   const addSongToGroup = async (songId) => {
+    const token = getToken()
     try {
       const song = availableSongs.find(s => s.id === songId)
       if (song) {
         await axios.put(`http://localhost:8002/songs/${songId}`, {
           ...song,
           group_id: selectedGroup.id
+        }, {
+          headers: { Authorization: `Bearer ${token}` }
         })
         toast.success('Песня добавлена в репертуар')
         await fetchGroupSongs(selectedGroup.id)
@@ -172,17 +207,20 @@ const GroupsManagement = ({ userRole }) => {
       }
     } catch (error) {
       console.error('Error adding song:', error)
-      toast.error('Ошибка добавления песни')
+      toast.error(error.response?.data?.error || 'Ошибка добавления песни')
     }
   }
 
   const removeSongFromGroup = async (songId) => {
+    const token = getToken()
     try {
       const song = groupSongs.find(s => s.id === songId)
       if (song) {
         await axios.put(`http://localhost:8002/songs/${songId}`, {
           ...song,
           group_id: null
+        }, {
+          headers: { Authorization: `Bearer ${token}` }
         })
         toast.success('Песня удалена из репертуара')
         await fetchGroupSongs(selectedGroup.id)
@@ -190,7 +228,7 @@ const GroupsManagement = ({ userRole }) => {
       }
     } catch (error) {
       console.error('Error removing song:', error)
-      toast.error('Ошибка удаления песни')
+      toast.error(error.response?.data?.error || 'Ошибка удаления песни')
     }
   }
 
@@ -259,8 +297,8 @@ const GroupsManagement = ({ userRole }) => {
   }
 
   const filteredGroups = groups.filter(group =>
-    group.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    group.country.toLowerCase().includes(searchTerm.toLowerCase())
+    group.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    group.country?.toLowerCase().includes(searchTerm.toLowerCase())
   )
 
   if (loading) {
@@ -320,7 +358,7 @@ const GroupsManagement = ({ userRole }) => {
                   <p className="text-purple-300 text-sm mt-1">{group.country}</p>
                 </div>
                 <div className="flex gap-2" onClick={(e) => e.stopPropagation()}>
-                  {userRole === 'admin' && (
+                  {canEditGroup(group) && (
                     <>
                       <button
                         onClick={() => openModal(group)}
@@ -418,7 +456,7 @@ const GroupsManagement = ({ userRole }) => {
                     <Users className="w-5 h-5 text-purple-400" />
                     Состав группы ({groupMembers.length})
                   </h3>
-                  {userRole === 'admin' && (
+                  {canEditGroup(selectedGroup) && (
                     <button
                       onClick={() => openMemberModal()}
                       className="btn-secondary px-3 py-1 rounded-lg text-sm flex items-center gap-1"
@@ -446,7 +484,7 @@ const GroupsManagement = ({ userRole }) => {
                             )}
                           </div>
                         </div>
-                        {userRole === 'admin' && (
+                        {canEditGroup(selectedGroup) && (
                           <div className="flex gap-1">
                             <button
                               onClick={() => openMemberModal(member)}
@@ -485,7 +523,7 @@ const GroupsManagement = ({ userRole }) => {
                             <h4 className="text-white font-medium">{song.title}</h4>
                             <p className="text-gray-400 text-sm">{song.composer} / {song.singer}</p>
                           </div>
-                          {userRole === 'admin' && (
+                          {canEditGroup(selectedGroup) && (
                             <button
                               onClick={() => removeSongFromGroup(song.id)}
                               className="p-1 hover:bg-red-500/20 rounded-lg transition-colors"
@@ -499,7 +537,7 @@ const GroupsManagement = ({ userRole }) => {
                   </div>
                 </div>
 
-                {userRole === 'admin' && (
+                {canEditGroup(selectedGroup) && (
                   <div>
                     <h3 className="text-lg font-semibold text-white mb-3 flex items-center gap-2">
                       <Plus className="w-5 h-5 text-green-400" />
@@ -666,7 +704,6 @@ const GroupsManagement = ({ userRole }) => {
                     value={memberFormData.role}
                     onChange={(e) => setMemberFormData({ ...memberFormData, role: e.target.value })}
                     className="input-dark w-full px-4 py-2 text-white"
-                    style={{ backgroundColor: 'rgba(255, 255, 255, 0.08)'}}
                     required
                   >
                     <option value="">Выберите роль</option>

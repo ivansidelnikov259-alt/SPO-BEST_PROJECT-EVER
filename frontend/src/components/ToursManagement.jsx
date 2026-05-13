@@ -1,20 +1,17 @@
 import React, { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Plus, Edit, Trash2, Search, Calendar, MapPin, DollarSign, Music, X, ListMusic } from 'lucide-react'
+import { Plus, Edit, Trash2, Search, Calendar, MapPin, DollarSign, Music, X } from 'lucide-react'
 import axios from 'axios'
 import toast from 'react-hot-toast'
 
 const ToursManagement = ({ userRole }) => {
   const [tours, setTours] = useState([])
   const [groups, setGroups] = useState([])
-  const [songs, setSongs] = useState([])
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState('')
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [editingTour, setEditingTour] = useState(null)
   const [selectedTour, setSelectedTour] = useState(null)
-  const [tourSongs, setTourSongs] = useState([])
-  const [availableSongs, setAvailableSongs] = useState([])
   const [formData, setFormData] = useState({
     program_name: '',
     city: '',
@@ -24,20 +21,23 @@ const ToursManagement = ({ userRole }) => {
     group_id: ''
   })
 
+  const getToken = () => localStorage.getItem('token')
+
   useEffect(() => {
     fetchData()
   }, [])
 
   const fetchData = async () => {
+    const token = getToken()
     try {
-      const [toursRes, groupsRes, songsRes] = await Promise.all([
+      const [toursRes, groupsRes] = await Promise.all([
         axios.get('http://localhost:8003/api/tours'),
-        axios.get('http://localhost:8001/groups'),
-        axios.get('http://localhost:8002/songs')
+        axios.get('http://localhost:8001/groups', {
+          headers: { Authorization: `Bearer ${token}` }
+        })
       ])
       setTours(toursRes.data)
       setGroups(groupsRes.data)
-      setSongs(songsRes.data)
     } catch (error) {
       console.error('Error fetching data:', error)
       toast.error('Ошибка загрузки данных')
@@ -46,19 +46,9 @@ const ToursManagement = ({ userRole }) => {
     }
   }
 
-  const fetchTourSongs = async (tourId, groupId) => {
-    try {
-      // Получаем песни группы, которые могут быть исполнены на гастролях
-      const groupSongs = songs.filter(song => song.group_id === groupId)
-      setTourSongs(groupSongs)
-      setAvailableSongs(groupSongs)
-    } catch (error) {
-      console.error('Error fetching tour songs:', error)
-    }
-  }
-
   const handleSubmit = async (e) => {
     e.preventDefault()
+    const token = getToken()
     try {
       if (editingTour) {
         await axios.put(`http://localhost:8003/api/tours/${editingTour.id}`, formData)
@@ -118,11 +108,6 @@ const ToursManagement = ({ userRole }) => {
     setEditingTour(null)
   }
 
-  const openTourDetails = async (tour) => {
-    setSelectedTour(tour)
-    await fetchTourSongs(tour.id, tour.group_id)
-  }
-
   const filteredTours = tours.filter(tour =>
     tour.program_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
     tour.city?.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -178,7 +163,7 @@ const ToursManagement = ({ userRole }) => {
               exit={{ opacity: 0, scale: 0.9 }}
               transition={{ delay: index * 0.05 }}
               className="glass-card-light p-6 hover:border-purple-500/50 transition-all duration-300 cursor-pointer"
-              onClick={() => openTourDetails(tour)}
+              onClick={() => setSelectedTour(tour)}
             >
               <div className="flex justify-between items-start">
                 <div className="flex items-start gap-3">
@@ -224,19 +209,12 @@ const ToursManagement = ({ userRole }) => {
                   <span className="text-sm">По: {new Date(tour.end_date).toLocaleDateString()}</span>
                 </div>
               </div>
-
-              <div className="mt-3 pt-3 border-t border-white/10">
-                <div className="flex items-center gap-2 text-gray-400 text-sm">
-                  <ListMusic className="w-3 h-3" />
-                  <span>Длительность: {Math.ceil((new Date(tour.end_date) - new Date(tour.start_date)) / (1000 * 60 * 60 * 24))} дней</span>
-                </div>
-              </div>
             </motion.div>
           ))}
         </AnimatePresence>
       </div>
 
-      {/* Модальное окно для треклиста гастролей */}
+      {/* Модальное окно для деталей гастролей */}
       <AnimatePresence>
         {selectedTour && (
           <motion.div
@@ -250,46 +228,20 @@ const ToursManagement = ({ userRole }) => {
               initial={{ scale: 0.9, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.9, opacity: 0 }}
-              className="bg-gradient-to-br from-gray-900 to-gray-800 rounded-2xl w-full max-w-3xl p-6 shadow-2xl max-h-[85vh] overflow-y-auto"
+              className="bg-gradient-to-br from-gray-900 to-gray-800 rounded-2xl w-full max-w-md p-6 shadow-2xl"
               onClick={(e) => e.stopPropagation()}
             >
               <div className="flex justify-between items-center mb-4">
-                <h2 className="text-2xl font-bold text-white">
-                  Треклист: {selectedTour.program_name}
-                </h2>
-                <button onClick={() => setSelectedTour(null)} className="p-2 hover:bg-white/10 rounded-lg">
-                  <X className="w-6 h-6 text-gray-400" />
+                <h2 className="text-xl font-bold text-white">{selectedTour.program_name}</h2>
+                <button onClick={() => setSelectedTour(null)} className="p-1 hover:bg-white/10 rounded">
+                  <X className="w-5 h-5 text-gray-400" />
                 </button>
               </div>
-              
-              <div className="mb-4 p-4 glass-card">
-                <p className="text-gray-300">Группа: <span className="text-purple-400">{selectedTour.group_name}</span></p>
-                <p className="text-gray-300">Город: <span className="text-purple-400">{selectedTour.city}</span></p>
-                <p className="text-gray-300">Даты: <span className="text-purple-400">{new Date(selectedTour.start_date).toLocaleDateString()} - {new Date(selectedTour.end_date).toLocaleDateString()}</span></p>
-              </div>
-
-              <h3 className="text-lg font-semibold text-white mb-3 flex items-center gap-2">
-                <Music className="w-5 h-5 text-purple-400" />
-                Исполняемые песни
-              </h3>
-              
-              <div className="space-y-3">
-                {tourSongs.length === 0 ? (
-                  <p className="text-gray-400 text-center py-8">Нет песен в треклисте</p>
-                ) : (
-                  tourSongs.map((song, index) => (
-                    <div key={song.id} className="glass-card p-4 flex items-center gap-4">
-                      <div className="w-8 h-8 rounded-full bg-purple-500/20 flex items-center justify-center text-purple-400 font-bold">
-                        {index + 1}
-                      </div>
-                      <div className="flex-1">
-                        <h4 className="text-white font-medium">{song.title}</h4>
-                        <p className="text-gray-400 text-sm">Композитор: {song.composer} | Исполнитель: {song.singer}</p>
-                      </div>
-                      <Music className="w-5 h-5 text-purple-400" />
-                    </div>
-                  ))
-                )}
+              <div className="space-y-2">
+                <p><span className="text-gray-400">Группа:</span> <span className="text-white">{selectedTour.group_name}</span></p>
+                <p><span className="text-gray-400">Город:</span> <span className="text-white">{selectedTour.city}</span></p>
+                <p><span className="text-gray-400">Период:</span> <span className="text-white">{new Date(selectedTour.start_date).toLocaleDateString()} - {new Date(selectedTour.end_date).toLocaleDateString()}</span></p>
+                <p><span className="text-gray-400">Цена билета:</span> <span className="text-white">${selectedTour.avg_ticket_price}</span></p>
               </div>
             </motion.div>
           </motion.div>
