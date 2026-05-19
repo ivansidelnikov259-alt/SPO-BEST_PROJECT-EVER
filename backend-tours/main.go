@@ -18,9 +18,11 @@ type Tour struct {
     ID             int     `json:"id"`
     ProgramName    string  `json:"program_name"`
     City           string  `json:"city"`
+    Date           string  `json:"date"`
     StartDate      string  `json:"start_date"`
     EndDate        string  `json:"end_date"`
     AvgTicketPrice float64 `json:"avg_ticket_price"`
+    Currency       string  `json:"currency"`
     GroupID        int     `json:"group_id"`
     GroupName      string  `json:"group_name,omitempty"`
     CreatedBy      int     `json:"created_by"`
@@ -30,18 +32,22 @@ type Tour struct {
 type TourCreate struct {
     ProgramName    string  `json:"program_name" binding:"required"`
     City           string  `json:"city" binding:"required"`
+    Date           string  `json:"date" binding:"required"`
     StartDate      string  `json:"start_date" binding:"required"`
     EndDate        string  `json:"end_date" binding:"required"`
     AvgTicketPrice float64 `json:"avg_ticket_price" binding:"required"`
+    Currency       string  `json:"currency"`
     GroupID        int     `json:"group_id" binding:"required"`
 }
 
 type TourUpdate struct {
     ProgramName    string   `json:"program_name"`
     City           string   `json:"city"`
+    Date           string   `json:"date"`
     StartDate      string   `json:"start_date"`
     EndDate        string   `json:"end_date"`
     AvgTicketPrice *float64 `json:"avg_ticket_price"`
+    Currency       string   `json:"currency"`
     GroupID        *int     `json:"group_id"`
 }
 
@@ -86,6 +92,18 @@ func initDB() {
     log.Println("✅ Database connected successfully")
 }
 
+func validateDate(date string) bool {
+    _, err := time.Parse("2006-01-02", date)
+    return err == nil
+}
+
+func validateDateInRange(date, startDate, endDate string) bool {
+    d, _ := time.Parse("2006-01-02", date)
+    start, _ := time.Parse("2006-01-02", startDate)
+    end, _ := time.Parse("2006-01-02", endDate)
+    return (d.Equal(start) || d.After(start)) && (d.Equal(end) || d.Before(end))
+}
+
 func validateDates(startDate, endDate string) bool {
     start, err1 := time.Parse("2006-01-02", startDate)
     end, err2 := time.Parse("2006-01-02", endDate)
@@ -95,7 +113,6 @@ func validateDates(startDate, endDate string) bool {
     return !end.Before(start)
 }
 
-// Получение user_id из заголовка (передаётся из React)
 func getUserID(c *gin.Context) int {
     userIDHeader := c.GetHeader("X-User-Id")
     if userIDHeader == "" {
@@ -114,22 +131,22 @@ func getTours(c *gin.Context) {
 
     if userRole == "admin" {
         query = `
-            SELECT t.id, t.program_name, t.city, t.start_date, t.end_date, 
-                   t.avg_ticket_price, t.group_id, t.created_at, g.name as group_name,
+            SELECT t.id, t.program_name, t.city, t.date, t.start_date, t.end_date, 
+                   t.avg_ticket_price, COALESCE(t.currency, 'USD'), t.group_id, t.created_at, g.name as group_name,
                    COALESCE(t.created_by, 1) as created_by
             FROM tours t 
             JOIN groups g ON t.group_id = g.id 
-            ORDER BY t.start_date DESC
+            ORDER BY t.date DESC
         `
     } else {
         query = `
-            SELECT t.id, t.program_name, t.city, t.start_date, t.end_date, 
-                   t.avg_ticket_price, t.group_id, t.created_at, g.name as group_name,
+            SELECT t.id, t.program_name, t.city, t.date, t.start_date, t.end_date, 
+                   t.avg_ticket_price, COALESCE(t.currency, 'USD'), t.group_id, t.created_at, g.name as group_name,
                    COALESCE(t.created_by, 1) as created_by
             FROM tours t 
             JOIN groups g ON t.group_id = g.id 
             WHERE COALESCE(t.created_by, 1) = $1
-            ORDER BY t.start_date DESC
+            ORDER BY t.date DESC
         `
         params = append(params, userID)
     }
@@ -145,8 +162,8 @@ func getTours(c *gin.Context) {
     var tours []Tour
     for rows.Next() {
         var tour Tour
-        err := rows.Scan(&tour.ID, &tour.ProgramName, &tour.City, &tour.StartDate,
-            &tour.EndDate, &tour.AvgTicketPrice, &tour.GroupID, &tour.CreatedAt, &tour.GroupName, &tour.CreatedBy)
+        err := rows.Scan(&tour.ID, &tour.ProgramName, &tour.City, &tour.Date, &tour.StartDate,
+            &tour.EndDate, &tour.AvgTicketPrice, &tour.Currency, &tour.GroupID, &tour.CreatedAt, &tour.GroupName, &tour.CreatedBy)
         if err != nil {
             log.Printf("Error scanning tour: %v", err)
             c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -170,16 +187,15 @@ func getTour(c *gin.Context) {
 
     var tour Tour
     query := `
-        SELECT t.id, t.program_name, t.city, t.start_date, t.end_date, 
-               t.avg_ticket_price, t.group_id, t.created_at, g.name as group_name,
+        SELECT t.id, t.program_name, t.city, t.date, t.start_date, t.end_date, 
+               t.avg_ticket_price, COALESCE(t.currency, 'USD'), t.group_id, t.created_at, g.name as group_name,
                COALESCE(t.created_by, 1) as created_by
         FROM tours t 
         JOIN groups g ON t.group_id = g.id 
         WHERE t.id = $1
     `
-    err = db.QueryRow(query, id).Scan(&tour.ID, &tour.ProgramName, &tour.City,
-        &tour.StartDate, &tour.EndDate, &tour.AvgTicketPrice, &tour.GroupID,
-        &tour.CreatedAt, &tour.GroupName, &tour.CreatedBy)
+    err = db.QueryRow(query, id).Scan(&tour.ID, &tour.ProgramName, &tour.City, &tour.Date, &tour.StartDate,
+        &tour.EndDate, &tour.AvgTicketPrice, &tour.Currency, &tour.GroupID, &tour.CreatedAt, &tour.GroupName, &tour.CreatedBy)
 
     if err == sql.ErrNoRows {
         c.JSON(http.StatusNotFound, gin.H{"error": "Tour not found"})
@@ -209,12 +225,20 @@ func createTour(c *gin.Context) {
         return
     }
 
-    if !validateDates(tour.StartDate, tour.EndDate) {
-        c.JSON(http.StatusBadRequest, gin.H{"error": "End date must be after start date"})
+    if tour.Currency == "" {
+        tour.Currency = "USD"
+    }
+
+    if !validateDate(tour.Date) || !validateDates(tour.StartDate, tour.EndDate) {
+        c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid date format"})
         return
     }
 
-    // Проверяем существование группы и доступ
+    if !validateDateInRange(tour.Date, tour.StartDate, tour.EndDate) {
+        c.JSON(http.StatusBadRequest, gin.H{"error": "Concert date must be within tour period"})
+        return
+    }
+
     var groupCreatedBy int
     err := db.QueryRow("SELECT COALESCE(created_by, 1) FROM groups WHERE id = $1", tour.GroupID).Scan(&groupCreatedBy)
     if err == sql.ErrNoRows {
@@ -233,14 +257,14 @@ func createTour(c *gin.Context) {
 
     var newTour Tour
     query := `
-        INSERT INTO tours (program_name, city, start_date, end_date, avg_ticket_price, group_id, created_by)
-        VALUES ($1, $2, $3, $4, $5, $6, $7)
-        RETURNING id, program_name, city, start_date, end_date, avg_ticket_price, group_id, created_at
+        INSERT INTO tours (program_name, city, date, start_date, end_date, avg_ticket_price, currency, group_id, created_by)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        RETURNING id, program_name, city, date, start_date, end_date, avg_ticket_price, currency, group_id, created_at
     `
-    err = db.QueryRow(query, tour.ProgramName, tour.City, tour.StartDate,
-        tour.EndDate, tour.AvgTicketPrice, tour.GroupID, userID).Scan(
-        &newTour.ID, &newTour.ProgramName, &newTour.City, &newTour.StartDate,
-        &newTour.EndDate, &newTour.AvgTicketPrice, &newTour.GroupID, &newTour.CreatedAt)
+    err = db.QueryRow(query, tour.ProgramName, tour.City, tour.Date, tour.StartDate,
+        tour.EndDate, tour.AvgTicketPrice, tour.Currency, tour.GroupID, userID).Scan(
+        &newTour.ID, &newTour.ProgramName, &newTour.City, &newTour.Date, &newTour.StartDate,
+        &newTour.EndDate, &newTour.AvgTicketPrice, &newTour.Currency, &newTour.GroupID, &newTour.CreatedAt)
     newTour.CreatedBy = userID
 
     if err != nil {
@@ -249,7 +273,6 @@ func createTour(c *gin.Context) {
         return
     }
 
-    // Получаем имя группы
     db.QueryRow("SELECT name FROM groups WHERE id = $1", tour.GroupID).Scan(&newTour.GroupName)
 
     c.JSON(http.StatusCreated, newTour)
@@ -265,7 +288,6 @@ func updateTour(c *gin.Context) {
         return
     }
 
-    // Проверяем существование и права
     var createdBy int
     err = db.QueryRow("SELECT COALESCE(created_by, 1) FROM tours WHERE id = $1", id).Scan(&createdBy)
     if err == sql.ErrNoRows {
@@ -302,11 +324,12 @@ func updateTour(c *gin.Context) {
         params = append(params, updates.City)
         paramCount++
     }
+    if updates.Date != "" {
+        query += fmt.Sprintf("date = $%d, ", paramCount)
+        params = append(params, updates.Date)
+        paramCount++
+    }
     if updates.StartDate != "" {
-        if updates.EndDate != "" && !validateDates(updates.StartDate, updates.EndDate) {
-            c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid date range"})
-            return
-        }
         query += fmt.Sprintf("start_date = $%d, ", paramCount)
         params = append(params, updates.StartDate)
         paramCount++
@@ -321,8 +344,12 @@ func updateTour(c *gin.Context) {
         params = append(params, *updates.AvgTicketPrice)
         paramCount++
     }
+    if updates.Currency != "" {
+        query += fmt.Sprintf("currency = $%d, ", paramCount)
+        params = append(params, updates.Currency)
+        paramCount++
+    }
     if updates.GroupID != nil {
-        // Проверяем доступ к новой группе
         var groupCreatedBy int
         err = db.QueryRow("SELECT COALESCE(created_by, 1) FROM groups WHERE id = $1", *updates.GroupID).Scan(&groupCreatedBy)
         if err == sql.ErrNoRows {
@@ -347,13 +374,13 @@ func updateTour(c *gin.Context) {
         return
     }
 
-    query = query[:len(query)-2] + fmt.Sprintf(" WHERE id = $%d RETURNING id, program_name, city, start_date, end_date, avg_ticket_price, group_id, created_at", paramCount)
+    query = query[:len(query)-2] + fmt.Sprintf(" WHERE id = $%d RETURNING id, program_name, city, date, start_date, end_date, avg_ticket_price, currency, group_id, created_at", paramCount)
     params = append(params, id)
 
     var updatedTour Tour
     err = db.QueryRow(query, params...).Scan(&updatedTour.ID, &updatedTour.ProgramName, &updatedTour.City,
-        &updatedTour.StartDate, &updatedTour.EndDate, &updatedTour.AvgTicketPrice,
-        &updatedTour.GroupID, &updatedTour.CreatedAt)
+        &updatedTour.Date, &updatedTour.StartDate, &updatedTour.EndDate, &updatedTour.AvgTicketPrice,
+        &updatedTour.Currency, &updatedTour.GroupID, &updatedTour.CreatedAt)
     updatedTour.CreatedBy = createdBy
 
     if err == sql.ErrNoRows {
@@ -366,7 +393,6 @@ func updateTour(c *gin.Context) {
         return
     }
 
-    // Получаем имя группы
     db.QueryRow("SELECT name FROM groups WHERE id = $1", updatedTour.GroupID).Scan(&updatedTour.GroupName)
 
     c.JSON(http.StatusOK, updatedTour)
@@ -382,7 +408,6 @@ func deleteTour(c *gin.Context) {
         return
     }
 
-    // Проверяем существование и права
     var createdBy int
     err = db.QueryRow("SELECT COALESCE(created_by, 1) FROM tours WHERE id = $1", id).Scan(&createdBy)
     if err == sql.ErrNoRows {

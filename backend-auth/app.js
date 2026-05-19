@@ -291,19 +291,37 @@ app.put('/api/users/:id', requireAdmin, async (req, res) => {
     }
 });
 
+// Удалить пользователя
 app.delete('/api/users/:id', requireAdmin, async (req, res) => {
     const userId = req.params.id;
+    
     try {
         if (parseInt(userId) === req.user.id) {
             return res.status(400).json({ error: 'Cannot delete yourself' });
         }
+        
+        // Проверяем, существует ли пользователь
+        const userCheck = await pool.query('SELECT id FROM users WHERE id = $1', [userId]);
+        if (userCheck.rows.length === 0) {
+            return res.status(404).json({ error: 'User not found' });
+        }
+        
+        // Сначала удаляем связанные записи в user_sessions и user_logs
+        await pool.query('DELETE FROM user_sessions WHERE user_id = $1', [userId]);
+        await pool.query('DELETE FROM user_logs WHERE user_id = $1', [userId]);
+        
+        // Теперь удаляем пользователя (группы и песни не удаляются,
+        // их created_by станет NULL благодаря ON DELETE SET NULL)
         await pool.query('DELETE FROM users WHERE id = $1', [userId]);
+        
         await pool.query(
             'INSERT INTO user_logs (user_id, action, details) VALUES ($1, $2, $3)',
             [req.user.id, 'DELETE_USER', `Deleted user ID ${userId}`]
         );
-        res.json({ message: 'User deleted' });
+        
+        res.json({ message: 'User deleted successfully' });
     } catch (err) {
+        console.error('Delete user error:', err);
         res.status(500).json({ error: err.message });
     }
 });

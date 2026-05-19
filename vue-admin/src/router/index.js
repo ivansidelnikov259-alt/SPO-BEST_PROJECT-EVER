@@ -3,12 +3,14 @@ import AdminLogin from '../views/AdminLogin.vue'
 import Dashboard from '../views/Dashboard.vue'
 import UsersView from '../views/UsersView.vue'
 import LogsView from '../views/LogsView.vue'
+import AssignManager from '../views/AssignManager.vue'
 
 const routes = [
   { path: '/login', name: 'login', component: AdminLogin },
   { path: '/', name: 'dashboard', component: Dashboard, meta: { requiresAuth: true } },
   { path: '/users', name: 'users', component: UsersView, meta: { requiresAuth: true } },
-  { path: '/logs', name: 'logs', component: LogsView, meta: { requiresAuth: true } }
+  { path: '/logs', name: 'logs', component: LogsView, meta: { requiresAuth: true } },
+  { path: '/assign', name: 'assign', component: AssignManager, meta: { requiresAuth: true } }
 ]
 
 const router = createRouter({

@@ -19,6 +19,7 @@ const GroupsManagement = () => {
   const [groupSongs, setGroupSongs] = useState([])
   const [groupMembers, setGroupMembers] = useState([])
   const [availableSongs, setAvailableSongs] = useState([])
+  const [membersCount, setMembersCount] = useState({})
   const [formData, setFormData] = useState({
     name: '',
     formation_year: new Date().getFullYear(),
@@ -45,6 +46,10 @@ const GroupsManagement = () => {
     return '👤'
   }
 
+  const canEditGroup = (group) => {
+    return isAdmin || group.created_by === userId
+  }
+
   useEffect(() => {
     fetchGroups()
     fetchAllSongs()
@@ -57,11 +62,41 @@ const GroupsManagement = () => {
         headers: { Authorization: `Bearer ${token}` }
       })
       setGroups(response.data)
+      await fetchAllMembersCount(response.data)
     } catch (error) {
       console.error('Error fetching groups:', error)
       toast.error('Ошибка загрузки групп')
     } finally {
       setLoading(false)
+    }
+  }
+
+  const fetchAllMembersCount = async (groupsList) => {
+    const token = getToken()
+    const counts = {}
+    
+    for (const group of groupsList) {
+      try {
+        const response = await axios.get(`http://localhost:8001/groups/${group.id}/members`, {
+          headers: { Authorization: `Bearer ${token}` }
+        })
+        counts[group.id] = response.data.length
+      } catch (error) {
+        counts[group.id] = 0
+      }
+    }
+    setMembersCount(counts)
+  }
+
+  const updateMemberCount = async (groupId) => {
+    const token = getToken()
+    try {
+      const response = await axios.get(`http://localhost:8001/groups/${groupId}/members`, {
+        headers: { Authorization: `Bearer ${token}` }
+      })
+      setMembersCount(prev => ({ ...prev, [groupId]: response.data.length }))
+    } catch (error) {
+      console.error('Error updating member count:', error)
     }
   }
 
@@ -103,10 +138,6 @@ const GroupsManagement = () => {
       console.error('Error fetching group members:', error)
       toast.error('Ошибка загрузки состава группы')
     }
-  }
-
-  const canEditGroup = (group) => {
-    return isAdmin || group.created_by === userId
   }
 
   const handleSubmit = async (e) => {
@@ -167,6 +198,7 @@ const GroupsManagement = () => {
         toast.success('Участник добавлен')
       }
       await fetchGroupMembers(selectedGroup.id)
+      await updateMemberCount(selectedGroup.id)
       closeMemberModal()
     } catch (error) {
       console.error('Error saving member:', error)
@@ -183,6 +215,7 @@ const GroupsManagement = () => {
         })
         toast.success('Участник удален')
         await fetchGroupMembers(selectedGroup.id)
+        await updateMemberCount(selectedGroup.id)
       } catch (error) {
         console.error('Error deleting member:', error)
         toast.error('Ошибка удаления')
@@ -289,6 +322,8 @@ const GroupsManagement = () => {
   }
 
   const openGroupDetails = async (group) => {
+    setGroupMembers([])
+    setGroupSongs([])
     setSelectedGroup(group)
     await Promise.all([
       fetchGroupSongs(group.id),
@@ -392,7 +427,7 @@ const GroupsManagement = () => {
                 </div>
                 <div className="flex items-center gap-2 text-gray-300">
                   <Users className="w-4 h-4 text-blue-400" />
-                  <span className="text-sm">Участников: {groupMembers.length}</span>
+                  <span className="text-sm">Участников: {membersCount[group.id] || 0}</span>
                 </div>
               </div>
 
@@ -433,7 +468,6 @@ const GroupsManagement = () => {
                 </button>
               </div>
 
-              {/* Описание группы */}
               <div className="mb-6 p-4 glass-card">
                 <div className="flex items-center gap-2 mb-2">
                   <Info className="w-5 h-5 text-purple-400" />
@@ -449,7 +483,6 @@ const GroupsManagement = () => {
                 </div>
               </div>
 
-              {/* Состав группы */}
               <div className="mb-6">
                 <div className="flex justify-between items-center mb-3">
                   <h3 className="text-lg font-semibold text-white flex items-center gap-2">
@@ -506,7 +539,6 @@ const GroupsManagement = () => {
                 </div>
               </div>
 
-              {/* Репертуар */}
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 <div>
                   <h3 className="text-lg font-semibold text-white mb-3 flex items-center gap-2">
@@ -571,7 +603,7 @@ const GroupsManagement = () => {
         )}
       </AnimatePresence>
 
-      {/* Модальное окно для редактирования группы */}
+      {/* Модальное окно для редактирования группы - СКРЫВАЕМ РЕЙТИНГ ДЛЯ НЕ-АДМИНОВ */}
       <AnimatePresence>
         {isModalOpen && (
           <motion.div
@@ -624,18 +656,23 @@ const GroupsManagement = () => {
                     required
                   />
                 </div>
-                <div>
-                  <label className="block text-gray-300 text-sm mb-2">Рейтинг (0-100)</label>
-                  <input
-                    type="number"
-                    value={formData.rating}
-                    onChange={(e) => setFormData({ ...formData, rating: parseInt(e.target.value) })}
-                    className="input-dark w-full px-4 py-2 text-white"
-                    min="0"
-                    max="100"
-                    required
-                  />
-                </div>
+                
+                {/* Поле рейтинга - ТОЛЬКО ДЛЯ АДМИНИСТРАТОРА */}
+                {isAdmin && (
+                  <div>
+                    <label className="block text-gray-300 text-sm mb-2">Рейтинг (0-100)</label>
+                    <input
+                      type="number"
+                      value={formData.rating}
+                      onChange={(e) => setFormData({ ...formData, rating: parseInt(e.target.value) })}
+                      className="input-dark w-full px-4 py-2 text-white"
+                      min="0"
+                      max="100"
+                      required
+                    />
+                  </div>
+                )}
+                
                 <div>
                   <label className="block text-gray-300 text-sm mb-2">Описание группы</label>
                   <textarea

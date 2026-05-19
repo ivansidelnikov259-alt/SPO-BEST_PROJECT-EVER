@@ -13,8 +13,8 @@
         <input v-model="newUser.username" placeholder="Имя пользователя" class="input" />
         <input v-model="newUser.password" type="password" placeholder="Пароль" class="input" />
         <select v-model="newUser.role" class="select">
-          <option value="manager">Менеджер</option>
-          <option value="admin">Администратор</option>
+          <option value="manager" style="background: #1a1a2e; color: white;">Менеджер</option>
+          <option value="admin" style="background: #1a1a2e; color: white;">Администратор</option>
         </select>
         <button @click="createUser" class="btn-save">Создать</button>
         <button @click="showCreateForm = false" class="btn-cancel">Отмена</button>
@@ -367,5 +367,32 @@ export default {
   text-align: center;
   color: #666;
   padding: 2rem;
+}
+
+.select, .small-select, .role-select {
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 8px;
+  color: white;
+  cursor: pointer;
+}
+
+.select option, .small-select option, .role-select option {
+  background: #1a1a2e;
+  color: white;
+}
+
+/* Для select в форме создания пользователя */
+.form-row select {
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 8px;
+  color: white;
+  padding: 0.5rem;
+}
+
+.form-row select option {
+  background: #1a1a2e;
+  color: white;
 }
 </style>

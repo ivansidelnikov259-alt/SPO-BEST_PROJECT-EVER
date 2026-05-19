@@ -17,9 +17,11 @@ const ToursManagement = () => {
   const [formData, setFormData] = useState({
     program_name: '',
     city: '',
+    date: '',
     start_date: '',
     end_date: '',
     avg_ticket_price: 0,
+    currency: 'USD',
     group_id: ''
   })
 
@@ -30,6 +32,25 @@ const ToursManagement = () => {
   const canEditTour = (tour) => {
     if (!tour) return false
     return isAdmin || tour.created_by === parseInt(getUserId())
+  }
+
+  const currencySymbols = {
+    'USD': '$',
+    'EUR': '€',
+    'RUB': '₽',
+    'GBP': '£',
+    'JPY': '¥',
+    'CNY': '¥',
+    'KRW': '₩',
+    'INR': '₹',
+    'CAD': 'C$',
+    'AUD': 'A$',
+    'CHF': 'Fr',
+    'TRY': '₺'
+  }
+
+  const getCurrencySymbol = (currency) => {
+    return currencySymbols[currency] || currency || '$'
   }
 
   useEffect(() => {
@@ -129,9 +150,11 @@ const ToursManagement = () => {
       setFormData({
         program_name: tour.program_name || '',
         city: tour.city || '',
+        date: tour.date || '',
         start_date: tour.start_date || '',
         end_date: tour.end_date || '',
         avg_ticket_price: tour.avg_ticket_price || 0,
+        currency: tour.currency || 'USD',
         group_id: tour.group_id || ''
       })
     } else {
@@ -139,9 +162,11 @@ const ToursManagement = () => {
       setFormData({
         program_name: '',
         city: '',
+        date: '',
         start_date: '',
         end_date: '',
         avg_ticket_price: 0,
+        currency: 'USD',
         group_id: groups[0]?.id || ''
       })
     }
@@ -256,16 +281,16 @@ const ToursManagement = () => {
                     <span className="text-sm">Город: {tour.city}</span>
                   </div>
                   <div className="flex items-center gap-2 text-gray-300">
-                    <DollarSign className="w-4 h-4 text-yellow-400" />
-                    <span className="text-sm">Цена билета: ${tour.avg_ticket_price}</span>
-                  </div>
-                  <div className="flex items-center gap-2 text-gray-300">
                     <Calendar className="w-4 h-4 text-blue-400" />
-                    <span className="text-sm">С: {new Date(tour.start_date).toLocaleDateString()}</span>
+                    <span className="text-sm">Дата: {new Date(tour.date).toLocaleDateString()}</span>
                   </div>
                   <div className="flex items-center gap-2 text-gray-300">
-                    <Calendar className="w-4 h-4 text-red-400" />
-                    <span className="text-sm">По: {new Date(tour.end_date).toLocaleDateString()}</span>
+                    <DollarSign className="w-4 h-4 text-yellow-400" />
+                    <span className="text-sm">Цена: {getCurrencySymbol(tour.currency)}{tour.avg_ticket_price}</span>
+                  </div>
+                  <div className="flex items-center gap-2 text-gray-300">
+                    <Calendar className="w-4 h-4 text-purple-400" />
+                    <span className="text-sm">Тур: {new Date(tour.start_date).toLocaleDateString()} - {new Date(tour.end_date).toLocaleDateString()}</span>
                   </div>
                 </div>
               </motion.div>
@@ -300,8 +325,9 @@ const ToursManagement = () => {
               <div className="space-y-2">
                 <p><span className="text-gray-400">Группа:</span> <span className="text-white">{selectedTour.group_name}</span></p>
                 <p><span className="text-gray-400">Город:</span> <span className="text-white">{selectedTour.city}</span></p>
-                <p><span className="text-gray-400">Период:</span> <span className="text-white">{new Date(selectedTour.start_date).toLocaleDateString()} - {new Date(selectedTour.end_date).toLocaleDateString()}</span></p>
-                <p><span className="text-gray-400">Цена билета:</span> <span className="text-white">${selectedTour.avg_ticket_price}</span></p>
+                <p><span className="text-gray-400">Дата концерта:</span> <span className="text-white">{new Date(selectedTour.date).toLocaleDateString()}</span></p>
+                <p><span className="text-gray-400">Период тура:</span> <span className="text-white">{new Date(selectedTour.start_date).toLocaleDateString()} - {new Date(selectedTour.end_date).toLocaleDateString()}</span></p>
+                <p><span className="text-gray-400">Цена билета:</span> <span className="text-white">{getCurrencySymbol(selectedTour.currency)}{selectedTour.avg_ticket_price}</span></p>
               </div>
             </motion.div>
           </motion.div>
@@ -350,6 +376,16 @@ const ToursManagement = () => {
                   />
                 </div>
                 <div>
+                  <label className="block text-gray-300 text-sm mb-2">Дата концерта</label>
+                  <input
+                    type="date"
+                    value={formData.date}
+                    onChange={(e) => setFormData({ ...formData, date: e.target.value })}
+                    className="input-dark w-full px-4 py-2 text-white"
+                    required
+                  />
+                </div>
+                <div>
                   <label className="block text-gray-300 text-sm mb-2">Группа</label>
                   <select
                     value={formData.group_id}
@@ -365,7 +401,7 @@ const ToursManagement = () => {
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="block text-gray-300 text-sm mb-2">Дата начала</label>
+                    <label className="block text-gray-300 text-sm mb-2">Начало тура</label>
                     <input
                       type="date"
                       value={formData.start_date}
@@ -375,7 +411,7 @@ const ToursManagement = () => {
                     />
                   </div>
                   <div>
-                    <label className="block text-gray-300 text-sm mb-2">Дата окончания</label>
+                    <label className="block text-gray-300 text-sm mb-2">Окончание тура</label>
                     <input
                       type="date"
                       value={formData.end_date}
@@ -385,17 +421,40 @@ const ToursManagement = () => {
                     />
                   </div>
                 </div>
-                <div>
-                  <label className="block text-gray-300 text-sm mb-2">Средняя цена билета ($)</label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    value={formData.avg_ticket_price}
-                    onChange={(e) => setFormData({ ...formData, avg_ticket_price: parseFloat(e.target.value) })}
-                    className="input-dark w-full px-4 py-2 text-white"
-                    min="0"
-                    required
-                  />
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-gray-300 text-sm mb-2">Валюта</label>
+                    <select
+                      value={formData.currency}
+                      onChange={(e) => setFormData({ ...formData, currency: e.target.value })}
+                      className="input-dark w-full px-4 py-2 text-white"
+                    >
+                      <option value="USD">💵 USD ($)</option>
+                      <option value="EUR">💶 EUR (€)</option>
+                      <option value="RUB">💷 RUB (₽)</option>
+                      <option value="GBP">💷 GBP (£)</option>
+                      <option value="JPY">💴 JPY (¥)</option>
+                      <option value="CNY">💴 CNY (¥)</option>
+                      <option value="KRW">💴 KRW (₩)</option>
+                      <option value="INR">₹ INR (₹)</option>
+                      <option value="CAD">C$ CAD</option>
+                      <option value="AUD">A$ AUD</option>
+                      <option value="CHF">Fr CHF</option>
+                      <option value="TRY">₺ TRY</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-gray-300 text-sm mb-2">Цена билета</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={formData.avg_ticket_price}
+                      onChange={(e) => setFormData({ ...formData, avg_ticket_price: parseFloat(e.target.value) })}
+                      className="input-dark w-full px-4 py-2 text-white"
+                      min="0"
+                      required
+                    />
+                  </div>
                 </div>
                 <div className="flex gap-3 pt-4">
                   <button

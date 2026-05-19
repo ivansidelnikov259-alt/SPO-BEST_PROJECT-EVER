@@ -12,7 +12,7 @@ load_dotenv()
 
 app = FastAPI(title="Groups Microservice")
 
-# Настройка CORS - РАСШИРЕННАЯ
+# Настройка CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173", "http://localhost:5175", "http://localhost:5174"],
@@ -199,6 +199,41 @@ async def get_most_popular_group():
         result['song_count'] = int(result.get('song_count', 0))
         return result
 
+# ============ ASSIGN MANAGER ENDPOINT ============
+
+@app.put("/groups/{group_id}/assign-manager")
+async def assign_manager(group_id: int, manager_id: Optional[int] = None, current_user: dict = Depends(get_current_user)):
+    # Только админ может назначать менеджеров
+    if current_user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    async with db_pool.acquire() as conn:
+        # Проверяем существование группы
+        group = await conn.fetchrow("SELECT * FROM groups WHERE id = $1", group_id)
+        if not group:
+            raise HTTPException(status_code=404, detail="Group not found")
+        
+        # Если manager_id = None или 0, то снимаем менеджера
+        if manager_id is None or manager_id == 0:
+            await conn.execute(
+                "UPDATE groups SET created_by = NULL WHERE id = $1",
+                group_id
+            )
+            return {"message": "Manager removed successfully"}
+        
+        # Проверяем существование менеджера
+        manager = await conn.fetchrow("SELECT * FROM users WHERE id = $1 AND role = 'manager'", manager_id)
+        if not manager:
+            raise HTTPException(status_code=404, detail="Manager not found")
+        
+        # Обновляем created_by
+        await conn.execute(
+            "UPDATE groups SET created_by = $1 WHERE id = $2",
+            manager_id, group_id
+        )
+        
+        return {"message": "Manager assigned successfully"}
+
 # ============ MEMBERS ENDPOINTS ============
 
 @app.get("/groups/{group_id}/members")
@@ -213,7 +248,6 @@ async def get_group_members(group_id: int):
 @app.post("/groups/members", status_code=status.HTTP_201_CREATED)
 async def add_member(member: MemberCreate, current_user: dict = Depends(get_current_user)):
     async with db_pool.acquire() as conn:
-        # Проверяем, имеет ли пользователь доступ к группе
         group = await conn.fetchrow("SELECT *, created_by FROM groups WHERE id = $1", member.group_id)
         if not group:
             raise HTTPException(status_code=404, detail="Group not found")

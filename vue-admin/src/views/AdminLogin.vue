@@ -2,10 +2,10 @@
   <div class="login">
     <div class="login-card">
       <div class="logo">
-        <span class="icon">🔐</span>
-        <h2>Админ-панель</h2>
+        <div class="logo-icon">🎵</div>
+        <h1>Admin Panel</h1>
+        <p>Вход в панель управления</p>
       </div>
-      <p class="subtitle">Вход только для администраторов</p>
       
       <div class="input-group">
         <input 
@@ -29,7 +29,7 @@
       
       <button @click="login" :disabled="loading" class="login-btn">
         <span v-if="loading" class="spinner"></span>
-        <span v-else>Войти</span>
+        <span v-else>{{ 'Войти' }}</span>
       </button>
       
       <p v-if="error" class="error-message">{{ error }}</p>
@@ -51,7 +51,6 @@ export default {
     }
   },
   mounted() {
-    // Проверяем, есть ли уже токен в localStorage
     const token = localStorage.getItem('admin_token')
     if (token) {
       this.autoLogin(token)
@@ -107,41 +106,43 @@ export default {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: transparent;
+  background: linear-gradient(135deg, #0f0c29 0%, #1a1a3e 50%, #24243e 100%);
   padding: 1rem;
 }
 
 .login-card {
-  background: rgba(0, 0, 0, 0.85);
-  backdrop-filter: blur(10px);
-  padding: 2rem;
-  border-radius: 24px;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(20px);
+  padding: 2.5rem;
+  border-radius: 32px;
   width: 100%;
-  max-width: 400px;
+  max-width: 420px;
   text-align: center;
   border: 1px solid rgba(168, 85, 247, 0.3);
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
 }
 
 .logo {
-  margin-bottom: 1rem;
+  margin-bottom: 2rem;
 }
 
-.icon {
-  font-size: 3rem;
-  display: block;
+.logo-icon {
+  font-size: 3.5rem;
   margin-bottom: 0.5rem;
 }
 
-.login-card h2 {
-  color: #a855f7;
-  font-size: 1.5rem;
-  margin: 0;
+.login-card h1 {
+  background: linear-gradient(135deg, #a855f7, #c084fc);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  font-size: 1.8rem;
+  margin-bottom: 0.5rem;
 }
 
-.subtitle {
+.login-card p {
   color: #888;
   font-size: 0.85rem;
-  margin-bottom: 1.5rem;
 }
 
 .input-group {
@@ -150,17 +151,23 @@ export default {
 
 .input-field {
   width: 100%;
-  padding: 0.85rem;
+  padding: 0.9rem;
   background: rgba(255, 255, 255, 0.08);
   border: 1px solid rgba(255, 255, 255, 0.15);
-  border-radius: 12px;
+  border-radius: 16px;
   color: white;
   font-size: 1rem;
+  transition: all 0.3s;
 }
 
 .input-field:focus {
   outline: none;
   border-color: #a855f7;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.input-field::placeholder {
+  color: #666;
 }
 
 .login-btn {
@@ -168,22 +175,24 @@ export default {
   background: linear-gradient(135deg, #a855f7, #7c3aed);
   color: white;
   border: none;
-  padding: 0.85rem;
-  border-radius: 12px;
+  padding: 0.9rem;
+  border-radius: 16px;
   cursor: pointer;
   font-size: 1rem;
   font-weight: 600;
+  transition: all 0.3s;
   margin-top: 0.5rem;
 }
 
 .login-btn:hover {
   transform: translateY(-2px);
-  box-shadow: 0 5px 20px rgba(168, 85, 247, 0.4);
+  box-shadow: 0 10px 25px -5px rgba(168, 85, 247, 0.4);
 }
 
 .login-btn:disabled {
   opacity: 0.7;
   transform: none;
+  cursor: not-allowed;
 }
 
 .spinner {

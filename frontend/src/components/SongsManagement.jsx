@@ -344,64 +344,94 @@ const SongsManagement = () => {
         </div>
       )}
 
-      {/* Модальное окно добавления/редактирования */}
+      {/* Модальное окно добавления/редактирования - С ПОДПИСЯМИ */}
       {isModalOpen && (
         <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={closeModal}>
           <div className="bg-gradient-to-br from-gray-900 to-gray-800 rounded-2xl w-full max-w-md p-6" onClick={(e) => e.stopPropagation()}>
             <h2 className="text-2xl font-bold text-white mb-4">{editingSong ? 'Редактировать песню' : 'Новая песня'}</h2>
             <form onSubmit={handleSubmit} className="space-y-4">
-              <input
-                type="text"
-                placeholder="Название"
-                value={formData.title}
-                onChange={(e) => setFormData({...formData, title: e.target.value})}
-                className="input-dark w-full px-4 py-2 text-white"
-                required
-              />
-              <input
-                type="text"
-                placeholder="Композитор"
-                value={formData.composer}
-                onChange={(e) => setFormData({...formData, composer: e.target.value})}
-                className="input-dark w-full px-4 py-2 text-white"
-                required
-              />
-              <input
-                type="text"
-                placeholder="Автор текста"
-                value={formData.lyricist}
-                onChange={(e) => setFormData({...formData, lyricist: e.target.value})}
-                className="input-dark w-full px-4 py-2 text-white"
-                required
-              />
-              <input
-                type="number"
-                placeholder="Год создания"
-                value={formData.creation_year}
-                onChange={(e) => setFormData({...formData, creation_year: parseInt(e.target.value)})}
-                className="input-dark w-full px-4 py-2 text-white"
-                min="1900"
-                max={new Date().getFullYear()}
-                required
-              />
-              <input
-                type="text"
-                placeholder="Исполнитель"
-                value={formData.singer}
-                onChange={(e) => setFormData({...formData, singer: e.target.value})}
-                className="input-dark w-full px-4 py-2 text-white"
-                required
-              />
-              <select
-                value={formData.group_id}
-                onChange={(e) => setFormData({...formData, group_id: e.target.value ? parseInt(e.target.value) : null})}
-                className="input-dark w-full px-4 py-2 text-white"
-              >
-                <option value="">Без группы</option>
-                {groups.map(g => (
-                  <option key={g.id} value={g.id}>{g.name}</option>
-                ))}
-              </select>
+              {/* Название песни */}
+              <div>
+                <label className="block text-gray-300 text-sm mb-2">Название песни</label>
+                <input
+                  type="text"
+                  placeholder="Введите название песни"
+                  value={formData.title}
+                  onChange={(e) => setFormData({...formData, title: e.target.value})}
+                  className="input-dark w-full px-4 py-2 text-white"
+                  required
+                />
+              </div>
+
+              {/* Композитор */}
+              <div>
+                <label className="block text-gray-300 text-sm mb-2">Композитор</label>
+                <input
+                  type="text"
+                  placeholder="Введите имя композитора"
+                  value={formData.composer}
+                  onChange={(e) => setFormData({...formData, composer: e.target.value})}
+                  className="input-dark w-full px-4 py-2 text-white"
+                  required
+                />
+              </div>
+
+              {/* Автор текста */}
+              <div>
+                <label className="block text-gray-300 text-sm mb-2">Автор текста</label>
+                <input
+                  type="text"
+                  placeholder="Введите имя автора текста"
+                  value={formData.lyricist}
+                  onChange={(e) => setFormData({...formData, lyricist: e.target.value})}
+                  className="input-dark w-full px-4 py-2 text-white"
+                  required
+                />
+              </div>
+
+              {/* Год создания */}
+              <div>
+                <label className="block text-gray-300 text-sm mb-2">Год создания</label>
+                <input
+                  type="number"
+                  placeholder="Год создания песни"
+                  value={formData.creation_year}
+                  onChange={(e) => setFormData({...formData, creation_year: parseInt(e.target.value)})}
+                  className="input-dark w-full px-4 py-2 text-white"
+                  min="1900"
+                  max={new Date().getFullYear()}
+                  required
+                />
+              </div>
+
+              {/* Исполнитель */}
+              <div>
+                <label className="block text-gray-300 text-sm mb-2">Исполнитель</label>
+                <input
+                  type="text"
+                  placeholder="Введите имя исполнителя"
+                  value={formData.singer}
+                  onChange={(e) => setFormData({...formData, singer: e.target.value})}
+                  className="input-dark w-full px-4 py-2 text-white"
+                  required
+                />
+              </div>
+
+              {/* Группа */}
+              <div>
+                <label className="block text-gray-300 text-sm mb-2">Группа</label>
+                <select
+                  value={formData.group_id}
+                  onChange={(e) => setFormData({...formData, group_id: e.target.value ? parseInt(e.target.value) : null})}
+                  className="input-dark w-full px-4 py-2 text-white"
+                >
+                  <option value="">Без группы</option>
+                  {groups.map(g => (
+                    <option key={g.id} value={g.id}>{g.name}</option>
+                  ))}
+                </select>
+              </div>
+
               <div className="flex gap-3 pt-4">
                 <button type="button" onClick={closeModal} className="flex-1 btn-secondary py-2 rounded-xl text-white">Отмена</button>
                 <button type="submit" className="flex-1 btn-primary py-2 rounded-xl text-white">Сохранить</button>
