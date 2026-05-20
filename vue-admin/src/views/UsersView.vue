@@ -7,20 +7,22 @@
       </button>
     </div>
 
+    <!-- Форма создания пользователя -->
     <div v-if="showCreateForm" class="create-form">
       <h3>Новый пользователь</h3>
       <div class="form-row">
         <input v-model="newUser.username" placeholder="Имя пользователя" class="input" />
         <input v-model="newUser.password" type="password" placeholder="Пароль" class="input" />
         <select v-model="newUser.role" class="select">
-          <option value="manager" style="background: #1a1a2e; color: white;">Менеджер</option>
-          <option value="admin" style="background: #1a1a2e; color: white;">Администратор</option>
+          <option value="manager">Менеджер</option>
+          <option value="admin">Администратор</option>
         </select>
         <button @click="createUser" class="btn-save">Создать</button>
         <button @click="showCreateForm = false" class="btn-cancel">Отмена</button>
       </div>
     </div>
 
+    <!-- Список пользователей -->
     <div class="users-list">
       <div v-for="user in users" :key="user.id" class="user-card">
         <div class="user-avatar">
@@ -39,6 +41,10 @@
           <div class="user-date">Создан: {{ formatDate(user.created_at) }}</div>
         </div>
         <div class="user-actions">
+          <!-- Кнопка смены пароля -->
+          <button @click="openPasswordModal(user)" class="action-btn password">
+            🔑 Сменить пароль
+          </button>
           <select @change="updateRole(user.id, $event.target.value)" :value="user.role" class="role-select">
             <option value="manager">Менеджер</option>
             <option value="admin">Админ</option>
@@ -56,6 +62,48 @@
         <p>Нет пользователей</p>
       </div>
     </div>
+
+    <!-- Модальное окно для смены пароля -->
+    <div v-if="showPasswordModal" class="modal" @click="closePasswordModal">
+      <div class="modal-content" @click.stop>
+        <div class="modal-header">
+          <h3>Смена пароля для: {{ selectedUser?.username }}</h3>
+          <button class="modal-close" @click="closePasswordModal">×</button>
+        </div>
+        <div class="modal-body">
+          <div class="form-group">
+            <label>Новый пароль</label>
+            <input 
+              v-model="newPassword" 
+              type="password" 
+              placeholder="Введите новый пароль"
+              class="input"
+            />
+          </div>
+          <div class="form-group">
+            <label>Подтверждение пароля</label>
+            <input 
+              v-model="confirmPassword" 
+              type="password" 
+              placeholder="Подтвердите пароль"
+              class="input"
+              @keyup.enter="changePassword"
+            />
+          </div>
+          <div v-if="passwordError" class="error-message">{{ passwordError }}</div>
+          <div v-if="passwordSuccess" class="success-message">{{ passwordSuccess }}</div>
+        </div>
+        <div class="modal-footer">
+          <button @click="resetPassword" class="btn-reset" :disabled="resetLoading">
+            {{ resetLoading ? 'Сброс...' : '🔄 Сбросить пароль' }}
+          </button>
+          <button @click="changePassword" class="btn-save" :disabled="changeLoading">
+            {{ changeLoading ? 'Сохранение...' : '💾 Сохранить пароль' }}
+          </button>
+          <button @click="closePasswordModal" class="btn-cancel">Отмена</button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -68,6 +116,14 @@ export default {
     return {
       users: [],
       showCreateForm: false,
+      showPasswordModal: false,
+      selectedUser: null,
+      newPassword: '',
+      confirmPassword: '',
+      passwordError: '',
+      passwordSuccess: '',
+      changeLoading: false,
+      resetLoading: false,
       newUser: {
         username: '',
         password: '',
@@ -157,6 +213,81 @@ export default {
         } catch (error) {
           console.error('Error deleting user:', error)
         }
+      }
+    },
+    openPasswordModal(user) {
+      this.selectedUser = user
+      this.newPassword = ''
+      this.confirmPassword = ''
+      this.passwordError = ''
+      this.passwordSuccess = ''
+      this.showPasswordModal = true
+    },
+    closePasswordModal() {
+      this.showPasswordModal = false
+      this.selectedUser = null
+      this.newPassword = ''
+      this.confirmPassword = ''
+      this.passwordError = ''
+      this.passwordSuccess = ''
+    },
+    async changePassword() {
+      if (!this.newPassword) {
+        this.passwordError = 'Введите новый пароль'
+        return
+      }
+      if (this.newPassword.length < 4) {
+        this.passwordError = 'Пароль должен содержать минимум 4 символа'
+        return
+      }
+      if (this.newPassword !== this.confirmPassword) {
+        this.passwordError = 'Пароли не совпадают'
+        return
+      }
+      
+      this.changeLoading = true
+      this.passwordError = ''
+      this.passwordSuccess = ''
+      
+      const token = this.getToken()
+      try {
+        await axios.put(`http://localhost:8004/api/users/${this.selectedUser.id}/password`, 
+          { new_password: this.newPassword },
+          { headers: { Authorization: `Bearer ${token}` } }
+        )
+        this.passwordSuccess = 'Пароль успешно изменён'
+        setTimeout(() => {
+          this.closePasswordModal()
+        }, 1500)
+      } catch (error) {
+        this.passwordError = error.response?.data?.error || 'Ошибка смены пароля'
+      } finally {
+        this.changeLoading = false
+      }
+    },
+    async resetPassword() {
+      if (!confirm(`Сбросить пароль для пользователя "${this.selectedUser.username}"? Новый пароль будет сгенерирован автоматически.`)) {
+        return
+      }
+      
+      this.resetLoading = true
+      this.passwordError = ''
+      this.passwordSuccess = ''
+      
+      const token = this.getToken()
+      try {
+        const response = await axios.post(`http://localhost:8004/api/users/${this.selectedUser.id}/reset-password`, 
+          {},
+          { headers: { Authorization: `Bearer ${token}` } }
+        )
+        this.passwordSuccess = `Новый пароль: ${response.data.new_password}`
+        setTimeout(() => {
+          this.closePasswordModal()
+        }, 3000)
+      } catch (error) {
+        this.passwordError = error.response?.data?.error || 'Ошибка сброса пароля'
+      } finally {
+        this.resetLoading = false
       }
     },
     formatDate(date) {
@@ -332,20 +463,17 @@ export default {
   flex-wrap: wrap;
 }
 
-.role-select {
-  padding: 0.35rem 0.5rem;
-  background: rgba(255, 255, 255, 0.1);
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  border-radius: 8px;
-  color: white;
-}
-
 .action-btn {
   padding: 0.35rem 0.75rem;
   border-radius: 8px;
   cursor: pointer;
   font-size: 0.75rem;
   border: none;
+}
+
+.action-btn.password {
+  background: rgba(168, 85, 247, 0.2);
+  color: #a855f7;
 }
 
 .action-btn.block {
@@ -363,36 +491,114 @@ export default {
   color: #f87171;
 }
 
-.empty {
-  text-align: center;
-  color: #666;
-  padding: 2rem;
-}
-
-.select, .small-select, .role-select {
+.role-select {
+  padding: 0.35rem 0.5rem;
   background: rgba(255, 255, 255, 0.1);
   border: 1px solid rgba(255, 255, 255, 0.2);
   border-radius: 8px;
   color: white;
+}
+
+/* Модальное окно */
+.modal {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.8);
+  backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.modal-content {
+  background: linear-gradient(135deg, #1a1a2e, #16213e);
+  border-radius: 24px;
+  width: 90%;
+  max-width: 450px;
+  border: 1px solid rgba(168, 85, 247, 0.3);
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1rem 1.5rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.modal-header h3 {
+  color: white;
+  margin: 0;
+}
+
+.modal-close {
+  background: none;
+  border: none;
+  color: #888;
+  font-size: 1.5rem;
   cursor: pointer;
 }
 
-.select option, .small-select option, .role-select option {
-  background: #1a1a2e;
+.modal-body {
+  padding: 1.5rem;
+}
+
+.form-group {
+  margin-bottom: 1rem;
+}
+
+.form-group label {
+  display: block;
+  color: #aaa;
+  font-size: 0.8rem;
+  margin-bottom: 0.5rem;
+}
+
+.form-group input {
+  width: 100%;
+  padding: 0.75rem;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 12px;
   color: white;
 }
 
-/* Для select в форме создания пользователя */
-.form-row select {
-  background: rgba(255, 255, 255, 0.1);
-  border: 1px solid rgba(255, 255, 255, 0.2);
+.error-message {
+  color: #f87171;
+  font-size: 0.8rem;
+  margin-top: 0.5rem;
+}
+
+.success-message {
+  color: #4ade80;
+  font-size: 0.8rem;
+  margin-top: 0.5rem;
+}
+
+.modal-footer {
+  display: flex;
+  gap: 0.75rem;
+  padding: 1rem 1.5rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  justify-content: flex-end;
+}
+
+.btn-reset {
+  background: rgba(239, 68, 68, 0.2);
+  color: #f87171;
+  border: none;
+  padding: 0.5rem 1rem;
   border-radius: 8px;
-  color: white;
-  padding: 0.5rem;
+  cursor: pointer;
 }
 
-.form-row select option {
-  background: #1a1a2e;
-  color: white;
+.btn-reset:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 </style>

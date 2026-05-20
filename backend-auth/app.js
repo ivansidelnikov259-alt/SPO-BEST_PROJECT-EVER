@@ -340,6 +340,70 @@ app.get('/api/logs', requireAdmin, async (req, res) => {
         res.status(500).json({ error: err.message });
     }
 });
+// Смена пароля пользователя (только для админа)
+app.put('/api/users/:id/password', requireAdmin, async (req, res) => {
+    const userId = req.params.id;
+    const { new_password } = req.body;
+    
+    if (!new_password || new_password.length < 4) {
+        return res.status(400).json({ error: 'Пароль должен содержать минимум 4 символа' });
+    }
+    
+    try {
+        const hashedPassword = await bcrypt.hash(new_password, 10);
+        
+        const result = await pool.query(
+            'UPDATE users SET password_hash = $1 WHERE id = $2 RETURNING id, username',
+            [hashedPassword, userId]
+        );
+        
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: 'Пользователь не найден' });
+        }
+        
+        await pool.query(
+            'INSERT INTO user_logs (user_id, action, details) VALUES ($1, $2, $3)',
+            [req.user.id, 'UPDATE_PASSWORD', `Changed password for user ${result.rows[0].username}`]
+        );
+        
+        res.json({ message: 'Пароль успешно изменён' });
+    } catch (err) {
+        console.error('Error changing password:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Сброс пароля (генерация временного пароля)
+app.post('/api/users/:id/reset-password', requireAdmin, async (req, res) => {
+    const userId = req.params.id;
+    const tempPassword = Math.random().toString(36).slice(-8); // Генерация 8-символьного пароля
+    
+    try {
+        const hashedPassword = await bcrypt.hash(tempPassword, 10);
+        
+        const result = await pool.query(
+            'UPDATE users SET password_hash = $1 WHERE id = $2 RETURNING id, username',
+            [hashedPassword, userId]
+        );
+        
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: 'Пользователь не найден' });
+        }
+        
+        await pool.query(
+            'INSERT INTO user_logs (user_id, action, details) VALUES ($1, $2, $3)',
+            [req.user.id, 'RESET_PASSWORD', `Reset password for user ${result.rows[0].username}`]
+        );
+        
+        res.json({ 
+            message: 'Пароль успешно сброшен', 
+            new_password: tempPassword 
+        });
+    } catch (err) {
+        console.error('Error resetting password:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
 
 app.listen(PORT, () => {
     console.log(`🔐 Auth microservice running on port ${PORT}`);
