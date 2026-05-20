@@ -35,6 +35,20 @@
   }
 }
 
+@media (max-width: 768px) {
+  .glass-card {
+    padding: 1rem !important;
+  }
+  
+  .grid {
+    gap: 1rem !important;
+  }
+  
+  .text-4xl {
+    font-size: 1.5rem !important;
+  }
+}
+
 @layer components {
   .glass-card {
     background: rgba(255, 255, 255, 0.05);
