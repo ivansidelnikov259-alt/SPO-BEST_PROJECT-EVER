@@ -18,7 +18,6 @@ const GroupsManagement = () => {
   const [selectedGroup, setSelectedGroup] = useState(null)
   const [groupSongs, setGroupSongs] = useState([])
   const [groupMembers, setGroupMembers] = useState([])
-  const [availableSongs, setAvailableSongs] = useState([])
   const [membersCount, setMembersCount] = useState({})
   const [formData, setFormData] = useState({
     name: '',
@@ -119,8 +118,6 @@ const GroupsManagement = () => {
         headers: { Authorization: `Bearer ${token}` }
       })
       setGroupSongs(response.data)
-      const notInGroup = songs.filter(song => song.group_id !== groupId)
-      setAvailableSongs(notInGroup)
     } catch (error) {
       console.error('Error fetching group songs:', error)
       toast.error('Ошибка загрузки песен группы')
@@ -220,48 +217,6 @@ const GroupsManagement = () => {
         console.error('Error deleting member:', error)
         toast.error('Ошибка удаления')
       }
-    }
-  }
-
-  const addSongToGroup = async (songId) => {
-    const token = getToken()
-    try {
-      const song = availableSongs.find(s => s.id === songId)
-      if (song) {
-        await axios.put(`http://localhost:8002/songs/${songId}`, {
-          ...song,
-          group_id: selectedGroup.id
-        }, {
-          headers: { Authorization: `Bearer ${token}` }
-        })
-        toast.success('Песня добавлена в репертуар')
-        await fetchGroupSongs(selectedGroup.id)
-        await fetchAllSongs()
-      }
-    } catch (error) {
-      console.error('Error adding song:', error)
-      toast.error(error.response?.data?.error || 'Ошибка добавления песни')
-    }
-  }
-
-  const removeSongFromGroup = async (songId) => {
-    const token = getToken()
-    try {
-      const song = groupSongs.find(s => s.id === songId)
-      if (song) {
-        await axios.put(`http://localhost:8002/songs/${songId}`, {
-          ...song,
-          group_id: null
-        }, {
-          headers: { Authorization: `Bearer ${token}` }
-        })
-        toast.success('Песня удалена из репертуара')
-        await fetchGroupSongs(selectedGroup.id)
-        await fetchAllSongs()
-      }
-    } catch (error) {
-      console.error('Error removing song:', error)
-      toast.error(error.response?.data?.error || 'Ошибка удаления песни')
     }
   }
 
@@ -458,7 +413,7 @@ const GroupsManagement = () => {
               initial={{ scale: 0.9, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.9, opacity: 0 }}
-              className="bg-gradient-to-br from-gray-900 to-gray-800 rounded-2xl w-full max-w-6xl p-6 shadow-2xl max-h-[85vh] overflow-y-auto"
+              className="bg-gradient-to-br from-gray-900 to-gray-800 rounded-2xl w-full max-w-4xl p-6 shadow-2xl max-h-[85vh] overflow-y-auto"
               onClick={(e) => e.stopPropagation()}
             >
               <div className="flex justify-between items-center mb-4">
@@ -468,6 +423,7 @@ const GroupsManagement = () => {
                 </button>
               </div>
 
+              {/* Описание группы */}
               <div className="mb-6 p-4 glass-card">
                 <div className="flex items-center gap-2 mb-2">
                   <Info className="w-5 h-5 text-purple-400" />
@@ -483,6 +439,7 @@ const GroupsManagement = () => {
                 </div>
               </div>
 
+              {/* Состав группы с возможностью добавления/редактирования */}
               <div className="mb-6">
                 <div className="flex justify-between items-center mb-3">
                   <h3 className="text-lg font-semibold text-white flex items-center gap-2">
@@ -539,71 +496,31 @@ const GroupsManagement = () => {
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                <div>
-                  <h3 className="text-lg font-semibold text-white mb-3 flex items-center gap-2">
-                    <Music className="w-5 h-5 text-purple-400" />
-                    Текущий репертуар ({groupSongs.length})
-                  </h3>
-                  <div className="space-y-2 max-h-96 overflow-y-auto pr-2">
-                    {groupSongs.length === 0 ? (
-                      <p className="text-gray-400 text-center py-8">Нет песен в репертуаре</p>
-                    ) : (
-                      groupSongs.map(song => (
-                        <div key={song.id} className="glass-card p-3 flex justify-between items-center">
-                          <div>
-                            <h4 className="text-white font-medium">{song.title}</h4>
-                            <p className="text-gray-400 text-sm">{song.composer} / {song.singer}</p>
-                          </div>
-                          {canEditGroup(selectedGroup) && (
-                            <button
-                              onClick={() => removeSongFromGroup(song.id)}
-                              className="p-1 hover:bg-red-500/20 rounded-lg transition-colors"
-                            >
-                              <Trash2 className="w-4 h-4 text-red-400" />
-                            </button>
-                          )}
-                        </div>
-                      ))
-                    )}
-                  </div>
+              {/* Репертуар (только просмотр) */}
+              <div>
+                <h3 className="text-lg font-semibold text-white mb-3 flex items-center gap-2">
+                  <Music className="w-5 h-5 text-purple-400" />
+                  Текущий репертуар ({groupSongs.length})
+                </h3>
+                <div className="space-y-2 max-h-96 overflow-y-auto pr-2">
+                  {groupSongs.length === 0 ? (
+                    <p className="text-gray-400 text-center py-8">Нет песен в репертуаре</p>
+                  ) : (
+                    groupSongs.map(song => (
+                      <div key={song.id} className="glass-card p-3">
+                        <h4 className="text-white font-medium">{song.title}</h4>
+                        <p className="text-gray-400 text-sm">Композитор: {song.composer} | Исполнитель: {song.singer}</p>
+                      </div>
+                    ))
+                  )}
                 </div>
-
-                {canEditGroup(selectedGroup) && (
-                  <div>
-                    <h3 className="text-lg font-semibold text-white mb-3 flex items-center gap-2">
-                      <Plus className="w-5 h-5 text-green-400" />
-                      Добавить песни ({availableSongs.length})
-                    </h3>
-                    <div className="space-y-2 max-h-96 overflow-y-auto pr-2">
-                      {availableSongs.length === 0 ? (
-                        <p className="text-gray-400 text-center py-8">Нет доступных песен</p>
-                      ) : (
-                        availableSongs.map(song => (
-                          <div key={song.id} className="glass-card p-3 flex justify-between items-center">
-                            <div>
-                              <h4 className="text-white font-medium">{song.title}</h4>
-                              <p className="text-gray-400 text-sm">{song.composer} / {song.singer}</p>
-                            </div>
-                            <button
-                              onClick={() => addSongToGroup(song.id)}
-                              className="p-1 hover:bg-green-500/20 rounded-lg transition-colors"
-                            >
-                              <Plus className="w-4 h-4 text-green-400" />
-                            </button>
-                          </div>
-                        ))
-                      )}
-                    </div>
-                  </div>
-                )}
               </div>
             </motion.div>
           </motion.div>
         )}
       </AnimatePresence>
 
-      {/* Модальное окно для редактирования группы - СКРЫВАЕМ РЕЙТИНГ ДЛЯ НЕ-АДМИНОВ */}
+      {/* Модальное окно для редактирования группы */}
       <AnimatePresence>
         {isModalOpen && (
           <motion.div
@@ -657,7 +574,6 @@ const GroupsManagement = () => {
                   />
                 </div>
                 
-                {/* Поле рейтинга - ТОЛЬКО ДЛЯ АДМИНИСТРАТОРА */}
                 {isAdmin && (
                   <div>
                     <label className="block text-gray-300 text-sm mb-2">Рейтинг (0-100)</label>
