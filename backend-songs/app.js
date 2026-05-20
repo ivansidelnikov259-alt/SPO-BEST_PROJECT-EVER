@@ -4,18 +4,11 @@ const { Pool } = require('pg');
 const jwt = require('jsonwebtoken');
 require('dotenv').config();
 
-console.log('JWT_SECRET loaded:', process.env.JWT_SECRET ? 'Yes' : 'No');
-console.log('JWT_SECRET value:', process.env.JWT_SECRET);
 const app = express();
 const PORT = process.env.PORT || 8002;
-const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-2025-music-manager';
+const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-2026-music-manager';
 
-app.use(cors({
-    origin: ['http://localhost:5173', 'http://localhost:5175', 'http://localhost:5174'],
-    credentials: true,
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization']
-}));
+app.use(cors());
 app.use(express.json());
 
 const pool = new Pool({
@@ -26,11 +19,10 @@ const pool = new Pool({
     password: process.env.DB_PASSWORD || 'postgres',
 });
 
-// Middleware для проверки токена
 const verifyToken = (req, res, next) => {
     const authHeader = req.headers.authorization;
     if (!authHeader) {
-        return res.status(401).json({ error: 'No token provided' });
+        return res.status(401).json({ error: 'Токен не предоставлен' });
     }
     
     const token = authHeader.replace('Bearer ', '');
@@ -39,74 +31,46 @@ const verifyToken = (req, res, next) => {
         req.user = decoded;
         next();
     } catch (err) {
-        console.error('Token verification error:', err.message);
-        return res.status(401).json({ error: 'Invalid token' });
+        return res.status(401).json({ error: 'Невалидный токен' });
     }
 };
 
-// Тестовый эндпоинт
-app.get('/api/test', (req, res) => {
-    res.json({ message: 'Test endpoint works' });
-});
-
-// GET /songs - все песни
+// GET /songs
 app.get('/songs', verifyToken, async (req, res) => {
     try {
         let query;
         let params = [];
         
         if (req.user.role === 'admin') {
-            query = `
-                SELECT s.*, COALESCE(g.name, 'Без группы') as group_name 
-                FROM songs s 
-                LEFT JOIN groups g ON s.group_id = g.id 
-                ORDER BY s.id DESC
-            `;
+            query = `SELECT s.*, g.name as group_name FROM songs s LEFT JOIN groups g ON s.group_id = g.id ORDER BY s.id DESC`;
         } else {
             query = `
-                SELECT s.*, COALESCE(g.name, 'Без группы') as group_name 
-                FROM songs s 
-                LEFT JOIN groups g ON s.group_id = g.id 
-                WHERE s.created_by = $1
+                SELECT DISTINCT s.*, (SELECT g2.name FROM groups g2 WHERE g2.id = s.group_id) as group_name
+                FROM songs s
+                LEFT JOIN song_collaborations sc ON s.id = sc.song_id
+                WHERE s.created_by = $1 OR sc.group_id IN (SELECT id FROM groups WHERE created_by = $1)
                 ORDER BY s.id DESC
             `;
             params = [req.user.id];
         }
         
         const result = await pool.query(query, params);
-        res.json(result.rows);
-    } catch (err) {
-        console.error('Error:', err.message);
-        res.status(500).json({ error: err.message });
-    }
-});
-
-// GET /songs/group/:groupId
-app.get('/songs/group/:groupId', verifyToken, async (req, res) => {
-    try {
-        const groupCheck = await pool.query(
-            'SELECT created_by FROM groups WHERE id = $1',
-            [req.params.groupId]
-        );
+        const songsWithGroups = [];
         
-        if (groupCheck.rows.length === 0) {
-            return res.status(404).json({ error: 'Group not found' });
+        for (const song of result.rows) {
+            const groupsRes = await pool.query(
+                `SELECT g.id, g.name FROM song_collaborations sc JOIN groups g ON sc.group_id = g.id WHERE sc.song_id = $1`,
+                [song.id]
+            );
+            let groups = groupsRes.rows;
+            if (groups.length === 0 && song.group_id) {
+                groups = [{ id: song.group_id, name: song.group_name }];
+            }
+            songsWithGroups.push({ ...song, groups, is_collaboration: groups.length > 1 });
         }
-        
-        if (req.user.role !== 'admin' && groupCheck.rows[0].created_by !== req.user.id) {
-            return res.status(403).json({ error: 'Access denied' });
-        }
-        
-        const result = await pool.query(
-            `SELECT s.*, COALESCE(g.name, 'Без группы') as group_name 
-             FROM songs s 
-             LEFT JOIN groups g ON s.group_id = g.id 
-             WHERE s.group_id = $1
-             ORDER BY s.creation_year DESC`,
-            [req.params.groupId]
-        );
-        res.json(result.rows);
+        res.json(songsWithGroups);
     } catch (err) {
+        console.error('Error in /songs:', err.message);
         res.status(500).json({ error: err.message });
     }
 });
@@ -114,31 +78,18 @@ app.get('/songs/group/:groupId', verifyToken, async (req, res) => {
 // GET /songs/composer/:composerName
 app.get('/songs/composer/:composerName', verifyToken, async (req, res) => {
     try {
-        let query;
-        let params;
-        
-        if (req.user.role === 'admin') {
-            query = `
-                SELECT s.*, COALESCE(g.name, 'Без группы') as group_name 
-                FROM songs s 
-                LEFT JOIN groups g ON s.group_id = g.id 
-                WHERE s.composer ILIKE $1
-                ORDER BY s.creation_year DESC
-            `;
-            params = [`%${req.params.composerName}%`];
-        } else {
-            query = `
-                SELECT s.*, COALESCE(g.name, 'Без группы') as group_name 
-                FROM songs s 
-                LEFT JOIN groups g ON s.group_id = g.id 
-                WHERE s.composer ILIKE $1 AND s.created_by = $2
-                ORDER BY s.creation_year DESC
-            `;
-            params = [`%${req.params.composerName}%`, req.user.id];
+        const result = await pool.query(
+            `SELECT s.*, g.name as group_name FROM songs s LEFT JOIN groups g ON s.group_id = g.id WHERE s.composer ILIKE $1 ORDER BY s.creation_year DESC`,
+            [`%${req.params.composerName}%`]
+        );
+        const songsWithGroups = [];
+        for (const song of result.rows) {
+            const groupsRes = await pool.query(`SELECT g.id, g.name FROM song_collaborations sc JOIN groups g ON sc.group_id = g.id WHERE sc.song_id = $1`, [song.id]);
+            let groups = groupsRes.rows;
+            if (groups.length === 0 && song.group_id) groups = [{ id: song.group_id, name: song.group_name }];
+            songsWithGroups.push({ ...song, groups, is_collaboration: groups.length > 1 });
         }
-        
-        const result = await pool.query(query, params);
-        res.json(result.rows);
+        res.json(songsWithGroups);
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
@@ -147,31 +98,53 @@ app.get('/songs/composer/:composerName', verifyToken, async (req, res) => {
 // GET /songs/singer/:singerName
 app.get('/songs/singer/:singerName', verifyToken, async (req, res) => {
     try {
-        let query;
-        let params;
-        
-        if (req.user.role === 'admin') {
-            query = `
-                SELECT s.*, COALESCE(g.name, 'Без группы') as group_name 
-                FROM songs s 
-                LEFT JOIN groups g ON s.group_id = g.id 
-                WHERE s.singer ILIKE $1
-                ORDER BY s.creation_year DESC
-            `;
-            params = [`%${req.params.singerName}%`];
-        } else {
-            query = `
-                SELECT s.*, COALESCE(g.name, 'Без группы') as group_name 
-                FROM songs s 
-                LEFT JOIN groups g ON s.group_id = g.id 
-                WHERE s.singer ILIKE $1 AND s.created_by = $2
-                ORDER BY s.creation_year DESC
-            `;
-            params = [`%${req.params.singerName}%`, req.user.id];
+        const result = await pool.query(
+            `SELECT s.*, g.name as group_name FROM songs s LEFT JOIN groups g ON s.group_id = g.id WHERE s.singer ILIKE $1 ORDER BY s.creation_year DESC`,
+            [`%${req.params.singerName}%`]
+        );
+        const songsWithGroups = [];
+        for (const song of result.rows) {
+            const groupsRes = await pool.query(`SELECT g.id, g.name FROM song_collaborations sc JOIN groups g ON sc.group_id = g.id WHERE sc.song_id = $1`, [song.id]);
+            let groups = groupsRes.rows;
+            if (groups.length === 0 && song.group_id) groups = [{ id: song.group_id, name: song.group_name }];
+            songsWithGroups.push({ ...song, groups, is_collaboration: groups.length > 1 });
         }
-        
-        const result = await pool.query(query, params);
-        res.json(result.rows);
+        res.json(songsWithGroups);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// GET /songs/group/:groupId
+app.get('/songs/group/:groupId', verifyToken, async (req, res) => {
+    try {
+        const result = await pool.query(
+            `SELECT s.*, g.name as group_name FROM songs s LEFT JOIN groups g ON s.group_id = g.id WHERE s.group_id = $1 ORDER BY s.creation_year DESC`,
+            [req.params.groupId]
+        );
+        const songsWithGroups = [];
+        for (const song of result.rows) {
+            const groupsRes = await pool.query(`SELECT g.id, g.name FROM song_collaborations sc JOIN groups g ON sc.group_id = g.id WHERE sc.song_id = $1`, [song.id]);
+            let groups = groupsRes.rows;
+            if (groups.length === 0 && song.group_id) groups = [{ id: song.group_id, name: song.group_name }];
+            songsWithGroups.push({ ...song, groups, is_collaboration: groups.length > 1 });
+        }
+        res.json(songsWithGroups);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// GET /songs/:id
+app.get('/songs/:id', verifyToken, async (req, res) => {
+    try {
+        const result = await pool.query(`SELECT s.*, g.name as group_name FROM songs s LEFT JOIN groups g ON s.group_id = g.id WHERE s.id = $1`, [req.params.id]);
+        if (result.rows.length === 0) return res.status(404).json({ error: 'Song not found' });
+        const song = result.rows[0];
+        const groupsRes = await pool.query(`SELECT g.id, g.name FROM song_collaborations sc JOIN groups g ON sc.group_id = g.id WHERE sc.song_id = $1`, [req.params.id]);
+        let groups = groupsRes.rows;
+        if (groups.length === 0 && song.group_id) groups = [{ id: song.group_id, name: song.group_name }];
+        res.json({ ...song, groups, is_collaboration: groups.length > 1 });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
@@ -179,31 +152,21 @@ app.get('/songs/singer/:singerName', verifyToken, async (req, res) => {
 
 // POST /songs
 app.post('/songs', verifyToken, async (req, res) => {
-    const { title, composer, lyricist, creation_year, singer, group_id } = req.body;
+    const { title, composer, lyricist, creation_year, singer, group_ids } = req.body;
+    const groupIds = group_ids || [];
+    if (groupIds.length === 0) return res.status(400).json({ error: 'Выберите хотя бы одну группу' });
     
     try {
-        if (group_id) {
-            const groupCheck = await pool.query(
-                'SELECT created_by FROM groups WHERE id = $1',
-                [group_id]
-            );
-            
-            if (groupCheck.rows.length === 0) {
-                return res.status(404).json({ error: 'Group not found' });
-            }
-            
-            if (req.user.role !== 'admin' && groupCheck.rows[0].created_by !== req.user.id) {
-                return res.status(403).json({ error: 'You can only add songs to your own groups' });
-            }
-        }
-        
+        const primaryGroupId = groupIds[0];
         const result = await pool.query(
-            `INSERT INTO songs (title, composer, lyricist, creation_year, singer, group_id, created_by) 
-             VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
-            [title, composer, lyricist, creation_year, singer, group_id || null, req.user.id]
+            `INSERT INTO songs (title, composer, lyricist, creation_year, singer, group_id, is_collaboration, created_by) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
+            [title, composer, lyricist, creation_year, singer, primaryGroupId, groupIds.length > 1, req.user.id]
         );
-        
-        res.status(201).json(result.rows[0]);
+        const newSong = result.rows[0];
+        for (const gid of groupIds) {
+            await pool.query(`INSERT INTO song_collaborations (song_id, group_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`, [newSong.id, gid]);
+        }
+        res.status(201).json(newSong);
     } catch (err) {
         console.error('Error:', err.message);
         res.status(500).json({ error: err.message });
@@ -212,44 +175,45 @@ app.post('/songs', verifyToken, async (req, res) => {
 
 // PUT /songs/:id
 app.put('/songs/:id', verifyToken, async (req, res) => {
-    const { title, composer, lyricist, creation_year, singer, group_id } = req.body;
+    const { title, composer, lyricist, creation_year, singer, group_ids } = req.body;
+    const groupIds = group_ids || [];
+    if (groupIds.length === 0) return res.status(400).json({ error: 'Выберите хотя бы одну группу' });
     
     try {
-        const songCheck = await pool.query(
-            'SELECT created_by FROM songs WHERE id = $1',
-            [req.params.id]
-        );
+        const songCheck = await pool.query('SELECT created_by, group_id FROM songs WHERE id = $1', [req.params.id]);
+        if (songCheck.rows.length === 0) return res.status(404).json({ error: 'Песня не найдена' });
         
-        if (songCheck.rows.length === 0) {
-            return res.status(404).json({ error: 'Song not found' });
-        }
-        
-        if (req.user.role !== 'admin' && songCheck.rows[0].created_by !== req.user.id) {
-            return res.status(403).json({ error: 'Access denied' });
-        }
-        
-        if (group_id) {
-            const groupCheck = await pool.query(
-                'SELECT created_by FROM groups WHERE id = $1',
-                [group_id]
-            );
+        if (req.user.role !== 'admin') {
+            // Получаем группы менеджера
+            const userGroups = await pool.query('SELECT id FROM groups WHERE created_by = $1', [req.user.id]);
+            const userGroupIds = userGroups.rows.map(g => g.id);
             
-            if (groupCheck.rows.length === 0) {
-                return res.status(404).json({ error: 'Group not found' });
+            // Получаем текущие группы песни
+            const currentGroupsRes = await pool.query('SELECT group_id FROM song_collaborations WHERE song_id = $1', [req.params.id]);
+            let currentGroupIds = currentGroupsRes.rows.map(r => r.group_id);
+            if (currentGroupIds.length === 0 && songCheck.rows[0].group_id) {
+                currentGroupIds = [songCheck.rows[0].group_id];
             }
             
-            if (req.user.role !== 'admin' && groupCheck.rows[0].created_by !== req.user.id) {
-                return res.status(403).json({ error: 'You can only assign songs to your own groups' });
+            // Проверяем доступ: менеджер может редактировать, если он создатель ИЛИ его группа уже есть в песне
+            const hasAccess = currentGroupIds.some(id => userGroupIds.includes(id)) || songCheck.rows[0].created_by === req.user.id;
+            if (!hasAccess) {
+                return res.status(403).json({ error: 'Нет доступа к этой песне' });
             }
+            
+            // Менеджер может добавлять ЛЮБЫЕ группы (свои и чужие) - НЕТ ДОПОЛНИТЕЛЬНЫХ ПРОВЕРОК!
         }
         
-        const result = await pool.query(
-            `UPDATE songs SET title=$1, composer=$2, lyricist=$3, creation_year=$4, singer=$5, group_id=$6 
-             WHERE id=$7 RETURNING *`,
-            [title, composer, lyricist, creation_year, singer, group_id || null, req.params.id]
+        const primaryGroupId = groupIds[0];
+        await pool.query(
+            `UPDATE songs SET title=$1, composer=$2, lyricist=$3, creation_year=$4, singer=$5, group_id=$6, is_collaboration=$7 WHERE id=$8`,
+            [title, composer, lyricist, creation_year, singer, primaryGroupId, groupIds.length > 1, req.params.id]
         );
-        
-        res.json(result.rows[0]);
+        await pool.query(`DELETE FROM song_collaborations WHERE song_id = $1`, [req.params.id]);
+        for (const gid of groupIds) {
+            await pool.query(`INSERT INTO song_collaborations (song_id, group_id) VALUES ($1, $2)`, [req.params.id, gid]);
+        }
+        res.json({ message: 'Песня обновлена' });
     } catch (err) {
         console.error('Error:', err.message);
         res.status(500).json({ error: err.message });
@@ -259,28 +223,33 @@ app.put('/songs/:id', verifyToken, async (req, res) => {
 // DELETE /songs/:id
 app.delete('/songs/:id', verifyToken, async (req, res) => {
     try {
-        const songCheck = await pool.query(
-            'SELECT created_by FROM songs WHERE id = $1',
-            [req.params.id]
-        );
+        const songCheck = await pool.query('SELECT created_by FROM songs WHERE id = $1', [req.params.id]);
+        if (songCheck.rows.length === 0) return res.status(404).json({ error: 'Песня не найдена' });
         
-        if (songCheck.rows.length === 0) {
-            return res.status(404).json({ error: 'Song not found' });
+        if (req.user.role !== 'admin') {
+            const userGroups = await pool.query('SELECT id FROM groups WHERE created_by = $1', [req.user.id]);
+            const userGroupIds = userGroups.rows.map(g => g.id);
+            
+            const currentGroupsRes = await pool.query('SELECT group_id FROM song_collaborations WHERE song_id = $1', [req.params.id]);
+            let currentGroupIds = currentGroupsRes.rows.map(r => r.group_id);
+            if (currentGroupIds.length === 0 && songCheck.rows[0].group_id) {
+                currentGroupIds = [songCheck.rows[0].group_id];
+            }
+            
+            const hasAccess = currentGroupIds.some(id => userGroupIds.includes(id)) || songCheck.rows[0].created_by === req.user.id;
+            if (!hasAccess) {
+                return res.status(403).json({ error: 'Нет доступа' });
+            }
         }
         
-        if (req.user.role !== 'admin' && songCheck.rows[0].created_by !== req.user.id) {
-            return res.status(403).json({ error: 'Access denied' });
-        }
-        
+        await pool.query('DELETE FROM song_collaborations WHERE song_id = $1', [req.params.id]);
         await pool.query('DELETE FROM songs WHERE id = $1', [req.params.id]);
         res.status(204).send();
     } catch (err) {
-        console.error('Error:', err.message);
         res.status(500).json({ error: err.message });
     }
 });
 
 app.listen(PORT, () => {
     console.log(`🎵 Songs microservice running on port ${PORT}`);
-    console.log(`JWT_SECRET set: ${JWT_SECRET ? 'Yes' : 'No'}`);
 });

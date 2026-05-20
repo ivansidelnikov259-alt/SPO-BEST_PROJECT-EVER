@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Plus, Edit, Trash2, Search, Music, User, PenTool, Calendar } from 'lucide-react'
+import { Plus, Edit, Trash2, Search, Music, User, PenTool, Calendar, Users as UsersIcon, X } from 'lucide-react'
 import axios from 'axios'
 import toast from 'react-hot-toast'
 import { useAuth } from '../context/AuthContext'
@@ -18,19 +18,44 @@ const SongsManagement = () => {
   const [composerSongs, setComposerSongs] = useState([])
   const [selectedSinger, setSelectedSinger] = useState(null)
   const [singerSongs, setSingerSongs] = useState([])
+  const [groupSearchText, setGroupSearchText] = useState('')
   const [formData, setFormData] = useState({
     title: '',
     composer: '',
     lyricist: '',
     creation_year: new Date().getFullYear(),
     singer: '',
-    group_id: ''
+    group_ids: []
   })
 
   const getToken = () => localStorage.getItem('token')
 
+  // Получаем ID групп текущего менеджера
+  const getMyGroupIds = () => {
+    return groups.filter(g => g.created_by === userId).map(g => g.id)
+  }
+
+  // Проверяем, есть ли у менеджера своя группа в списке
+  const hasMyGroup = (groupIds) => {
+    if (isAdmin) return true
+    const myGroups = getMyGroupIds()
+    return groupIds.some(id => myGroups.includes(id))
+  }
+
   const canEditSong = (song) => {
-    return isAdmin || song.created_by === userId
+    if (isAdmin) return true;
+    if (song.created_by === userId) return true;
+    
+    const userGroups = groups.filter(g => g.created_by === userId).map(g => g.id);
+    
+    if (song.groups && song.groups.length > 0) {
+      const songGroupIds = song.groups.map(g => g.id);
+      if (songGroupIds.some(id => userGroups.includes(id))) return true;
+    }
+    
+    if (song.group_id && userGroups.includes(song.group_id)) return true;
+    
+    return false;
   }
 
   useEffect(() => {
@@ -44,12 +69,12 @@ const SongsManagement = () => {
         axios.get('http://localhost:8002/songs', {
           headers: { Authorization: `Bearer ${token}` }
         }),
-        axios.get('http://localhost:8001/groups', {
+        axios.get('http://localhost:8001/groups/all', {
           headers: { Authorization: `Bearer ${token}` }
         })
       ])
-      setSongs(songsRes.data)
-      setGroups(groupsRes.data)
+      setSongs(songsRes.data || [])
+      setGroups(groupsRes.data || [])
     } catch (error) {
       console.error('Error loading data:', error)
       toast.error('Ошибка загрузки данных')
@@ -59,9 +84,8 @@ const SongsManagement = () => {
   }
 
   const getFilteredSongs = () => {
-    if (searchText === '') {
-      return songs
-    }
+    if (!songs || songs.length === 0) return []
+    if (searchText === '') return songs
     
     const search = searchText.toLowerCase()
     
@@ -76,25 +100,50 @@ const SongsManagement = () => {
         return song.singer?.toLowerCase().includes(search)
       }
       if (filterType === 'group') {
-        return song.group_name?.toLowerCase().includes(search)
+        const groupNames = song.groups?.map(g => g.name).join(' ') || song.group_name || ''
+        return groupNames.toLowerCase().includes(search)
       }
       return true
     })
   }
 
   const filteredSongs = getFilteredSongs()
+  const filteredGroups = groups.filter(group =>
+    group.name.toLowerCase().includes(groupSearchText.toLowerCase())
+  )
 
   const handleSubmit = async (e) => {
     e.preventDefault()
     const token = getToken()
+    
+    if (formData.group_ids.length === 0) {
+      toast.error('Выберите хотя бы одну группу')
+      return
+    }
+    
+    // Проверка для менеджера: обязательно должна быть его собственная группа
+    if (!isAdmin && !hasMyGroup(formData.group_ids)) {
+      toast.error('Вы должны добавить свою группу в песню')
+      return
+    }
+    
+    const payload = {
+      title: formData.title,
+      composer: formData.composer,
+      lyricist: formData.lyricist,
+      creation_year: formData.creation_year,
+      singer: formData.singer,
+      group_ids: formData.group_ids
+    }
+    
     try {
       if (editingSong) {
-        await axios.put(`http://localhost:8002/songs/${editingSong.id}`, formData, {
+        await axios.put(`http://localhost:8002/songs/${editingSong.id}`, payload, {
           headers: { Authorization: `Bearer ${token}` }
         })
         toast.success('Песня обновлена')
       } else {
-        await axios.post('http://localhost:8002/songs', formData, {
+        await axios.post('http://localhost:8002/songs', payload, {
           headers: { Authorization: `Bearer ${token}` }
         })
         toast.success('Песня создана')
@@ -117,32 +166,37 @@ const SongsManagement = () => {
         toast.success('Песня удалена')
         loadData()
       } catch (error) {
-        console.error('Error deleting song:', error)
-        toast.error(error.response?.data?.error || 'Ошибка удаления')
+        toast.error('Ошибка удаления')
       }
     }
   }
 
   const openModal = (song = null) => {
+    setGroupSearchText('')
     if (song) {
       setEditingSong(song)
       setFormData({
-        title: song.title,
-        composer: song.composer,
-        lyricist: song.lyricist,
-        creation_year: song.creation_year,
-        singer: song.singer,
-        group_id: song.group_id || ''
+        title: song.title || '',
+        composer: song.composer || '',
+        lyricist: song.lyricist || '',
+        creation_year: song.creation_year || new Date().getFullYear(),
+        singer: song.singer || '',
+        group_ids: song.groups?.map(g => g.id) || (song.group_id ? [song.group_id] : [])
       })
     } else {
       setEditingSong(null)
+      // При создании новой песни для менеджера автоматически добавляем его группу
+      let initialGroupIds = []
+      if (!isAdmin) {
+        initialGroupIds = [...getMyGroupIds()]
+      }
       setFormData({
         title: '',
         composer: '',
         lyricist: '',
         creation_year: new Date().getFullYear(),
         singer: '',
-        group_id: ''
+        group_ids: initialGroupIds
       })
     }
     setIsModalOpen(true)
@@ -151,6 +205,7 @@ const SongsManagement = () => {
   const closeModal = () => {
     setIsModalOpen(false)
     setEditingSong(null)
+    setGroupSearchText('')
   }
 
   const showComposerSongs = async (composer) => {
@@ -162,7 +217,7 @@ const SongsManagement = () => {
       setComposerSongs(response.data)
       setSelectedComposer(composer)
     } catch (error) {
-      toast.error('Ошибка загрузки песен композитора')
+      toast.error('Ошибка загрузки')
     }
   }
 
@@ -175,8 +230,32 @@ const SongsManagement = () => {
       setSingerSongs(response.data)
       setSelectedSinger(singer)
     } catch (error) {
-      toast.error('Ошибка загрузки песен исполнителя')
+      toast.error('Ошибка загрузки')
     }
+  }
+
+  const handleGroupToggle = (groupId) => {
+    const myGroupIds = getMyGroupIds()
+    const isMyGroup = myGroupIds.includes(groupId)
+    const willHaveMyGroup = formData.group_ids.includes(groupId) ? 
+      (formData.group_ids.length === 1 && isMyGroup) : 
+      (formData.group_ids.some(id => myGroupIds.includes(id)) || isMyGroup)
+    
+    // Если пытаемся убрать последнюю свою группу
+    if (!isAdmin && isMyGroup && formData.group_ids.includes(groupId)) {
+      const otherMyGroups = formData.group_ids.filter(id => id !== groupId && myGroupIds.includes(id))
+      if (otherMyGroups.length === 0) {
+        toast.error('Нельзя убрать свою группу. У песни должна быть хотя бы одна ваша группа.')
+        return
+      }
+    }
+    
+    setFormData(prev => ({
+      ...prev,
+      group_ids: prev.group_ids.includes(groupId)
+        ? prev.group_ids.filter(id => id !== groupId)
+        : [...prev.group_ids, groupId]
+    }))
   }
 
   if (loading) {
@@ -205,14 +284,13 @@ const SongsManagement = () => {
         </motion.button>
       </div>
 
-      {/* Панель поиска */}
       <div className="glass-card p-6 mb-6">
         <div className="flex gap-3">
           <div className="flex-1 relative">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
             <input
               type="text"
-              placeholder="Введите текст для поиска..."
+              placeholder="Поиск..."
               value={searchText}
               onChange={(e) => setSearchText(e.target.value)}
               className="input-dark w-full pl-10 pr-4 py-3 text-white"
@@ -235,8 +313,15 @@ const SongsManagement = () => {
         </div>
       </div>
 
-      {/* Список песен */}
-      {filteredSongs.length === 0 && searchText ? (
+      {songs.length === 0 ? (
+        <div className="text-center py-12 glass-card">
+          <Music className="w-16 h-16 text-gray-500 mx-auto mb-4" />
+          <p className="text-gray-400">Нет песен</p>
+          <button onClick={() => openModal()} className="mt-4 btn-primary px-4 py-2 rounded-xl text-white">
+            Создать первую песню
+          </button>
+        </div>
+      ) : filteredSongs.length === 0 && searchText ? (
         <div className="text-center py-12 glass-card">
           <Music className="w-16 h-16 text-gray-500 mx-auto mb-4" />
           <p className="text-gray-400">Ничего не найдено</p>
@@ -255,8 +340,20 @@ const SongsManagement = () => {
                 <div className="flex items-start gap-3">
                   <Music className="w-8 h-8 text-purple-400 mt-1" />
                   <div>
-                    <h3 className="text-xl font-bold text-white">{song.title}</h3>
-                    <p className="text-purple-300 text-sm">{song.group_name || 'Без группы'}</p>
+                    <h3 className="text-xl font-bold text-white">
+                      {song.title}
+                      {song.is_collaboration && (
+                        <span className="ml-2 text-xs bg-purple-500/20 text-purple-400 px-2 py-0.5 rounded-full">
+                          Совместная
+                        </span>
+                      )}
+                    </h3>
+                    <div className="flex items-center gap-2 mt-1">
+                      <UsersIcon className="w-3 h-3 text-gray-400" />
+                      <p className="text-gray-400 text-xs">
+                        {song.groups?.map(g => g.name).join(', ') || song.group_name || 'Без группы'}
+                      </p>
+                    </div>
                   </div>
                 </div>
                 {canEditSong(song) && (
@@ -272,23 +369,17 @@ const SongsManagement = () => {
               </div>
 
               <div className="mt-4 grid grid-cols-2 gap-3">
-                <button
-                  onClick={() => showComposerSongs(song.composer)}
-                  className="flex items-center gap-2 text-gray-300 hover:text-purple-400 transition-colors text-left"
-                >
+                <button onClick={() => showComposerSongs(song.composer)} className="flex items-center gap-2 text-gray-300 hover:text-purple-400 text-left">
                   <User className="w-4 h-4 text-pink-400" />
-                  <span className="text-sm break-all">Композитор: {song.composer}</span>
+                  <span className="text-sm">Композитор: {song.composer}</span>
                 </button>
                 <div className="flex items-center gap-2 text-gray-300">
                   <PenTool className="w-4 h-4 text-green-400" />
-                  <span className="text-sm break-all">Автор: {song.lyricist}</span>
+                  <span className="text-sm">Автор: {song.lyricist}</span>
                 </div>
-                <button
-                  onClick={() => showSingerSongs(song.singer)}
-                  className="flex items-center gap-2 text-gray-300 hover:text-purple-400 transition-colors text-left"
-                >
+                <button onClick={() => showSingerSongs(song.singer)} className="flex items-center gap-2 text-gray-300 hover:text-purple-400 text-left">
                   <User className="w-4 h-4 text-blue-400" />
-                  <span className="text-sm break-all">Исполнитель: {song.singer}</span>
+                  <span className="text-sm">Исполнитель: {song.singer}</span>
                 </button>
                 <div className="flex items-center gap-2 text-gray-300">
                   <Calendar className="w-4 h-4 text-yellow-400" />
@@ -304,20 +395,18 @@ const SongsManagement = () => {
       {selectedComposer && (
         <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={() => setSelectedComposer(null)}>
           <div className="bg-gradient-to-br from-gray-900 to-gray-800 rounded-2xl w-full max-w-2xl p-6 max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-            <h2 className="text-2xl font-bold text-white mb-4">Песни: {selectedComposer}</h2>
-            <div className="space-y-3">
-              {composerSongs.map(song => (
-                <div key={song.id} className="glass-card p-4">
-                  <h3 className="text-lg font-semibold text-white">{song.title}</h3>
-                  <p className="text-purple-300 text-sm">{song.group_name}</p>
-                  <p className="text-gray-400 text-sm">{song.singer} ({song.creation_year})</p>
-                </div>
-              ))}
-              {composerSongs.length === 0 && (
-                <p className="text-gray-400 text-center py-8">Нет песен этого композитора</p>
-              )}
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-2xl font-bold text-white">Песни: {selectedComposer}</h2>
+              <button onClick={() => setSelectedComposer(null)} className="p-1 hover:bg-white/10 rounded"><X className="w-6 h-6 text-gray-400" /></button>
             </div>
-            <button onClick={() => setSelectedComposer(null)} className="mt-6 btn-primary px-6 py-2 rounded-xl text-white">Закрыть</button>
+            {composerSongs.map(song => (
+              <div key={song.id} className="glass-card p-4 mb-2">
+                <h3 className="text-lg font-semibold text-white">{song.title}</h3>
+                <p className="text-purple-300 text-sm">{song.groups?.map(g => g.name).join(', ') || song.group_name}</p>
+                <p className="text-gray-400 text-sm">{song.singer} ({song.creation_year})</p>
+              </div>
+            ))}
+            {composerSongs.length === 0 && <p className="text-gray-400 text-center py-8">Нет песен</p>}
           </div>
         </div>
       )}
@@ -326,112 +415,86 @@ const SongsManagement = () => {
       {selectedSinger && (
         <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={() => setSelectedSinger(null)}>
           <div className="bg-gradient-to-br from-gray-900 to-gray-800 rounded-2xl w-full max-w-2xl p-6 max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-            <h2 className="text-2xl font-bold text-white mb-4">Песни: {selectedSinger}</h2>
-            <div className="space-y-3">
-              {singerSongs.map(song => (
-                <div key={song.id} className="glass-card p-4">
-                  <h3 className="text-lg font-semibold text-white">{song.title}</h3>
-                  <p className="text-purple-300 text-sm">{song.group_name}</p>
-                  <p className="text-gray-400 text-sm">{song.composer} ({song.creation_year})</p>
-                </div>
-              ))}
-              {singerSongs.length === 0 && (
-                <p className="text-gray-400 text-center py-8">Нет песен этого исполнителя</p>
-              )}
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-2xl font-bold text-white">Песни: {selectedSinger}</h2>
+              <button onClick={() => setSelectedSinger(null)} className="p-1 hover:bg-white/10 rounded"><X className="w-6 h-6 text-gray-400" /></button>
             </div>
-            <button onClick={() => setSelectedSinger(null)} className="mt-6 btn-primary px-6 py-2 rounded-xl text-white">Закрыть</button>
+            {singerSongs.map(song => (
+              <div key={song.id} className="glass-card p-4 mb-2">
+                <h3 className="text-lg font-semibold text-white">{song.title}</h3>
+                <p className="text-purple-300 text-sm">{song.groups?.map(g => g.name).join(', ') || song.group_name}</p>
+                <p className="text-gray-400 text-sm">{song.composer} ({song.creation_year})</p>
+              </div>
+            ))}
+            {singerSongs.length === 0 && <p className="text-gray-400 text-center py-8">Нет песен</p>}
           </div>
         </div>
       )}
 
-      {/* Модальное окно добавления/редактирования - С ПОДПИСЯМИ */}
+      {/* Модальное окно добавления/редактирования */}
       {isModalOpen && (
         <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={closeModal}>
           <div className="bg-gradient-to-br from-gray-900 to-gray-800 rounded-2xl w-full max-w-md p-6" onClick={(e) => e.stopPropagation()}>
-            <h2 className="text-2xl font-bold text-white mb-4">{editingSong ? 'Редактировать песню' : 'Новая песня'}</h2>
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-2xl font-bold text-white">{editingSong ? 'Редактировать песню' : 'Новая песня'}</h2>
+              <button onClick={closeModal} className="p-1 hover:bg-white/10 rounded"><X className="w-6 h-6 text-gray-400" /></button>
+            </div>
             <form onSubmit={handleSubmit} className="space-y-4">
-              {/* Название песни */}
               <div>
-                <label className="block text-gray-300 text-sm mb-2">Название песни</label>
-                <input
-                  type="text"
-                  placeholder="Введите название песни"
-                  value={formData.title}
-                  onChange={(e) => setFormData({...formData, title: e.target.value})}
-                  className="input-dark w-full px-4 py-2 text-white"
-                  required
-                />
+                <label className="block text-gray-300 text-sm mb-2">Название</label>
+                <input type="text" value={formData.title} onChange={(e) => setFormData({...formData, title: e.target.value})} className="input-dark w-full px-4 py-2 text-white" required />
               </div>
-
-              {/* Композитор */}
               <div>
                 <label className="block text-gray-300 text-sm mb-2">Композитор</label>
-                <input
-                  type="text"
-                  placeholder="Введите имя композитора"
-                  value={formData.composer}
-                  onChange={(e) => setFormData({...formData, composer: e.target.value})}
-                  className="input-dark w-full px-4 py-2 text-white"
-                  required
-                />
+                <input type="text" value={formData.composer} onChange={(e) => setFormData({...formData, composer: e.target.value})} className="input-dark w-full px-4 py-2 text-white" required />
               </div>
-
-              {/* Автор текста */}
               <div>
                 <label className="block text-gray-300 text-sm mb-2">Автор текста</label>
-                <input
-                  type="text"
-                  placeholder="Введите имя автора текста"
-                  value={formData.lyricist}
-                  onChange={(e) => setFormData({...formData, lyricist: e.target.value})}
-                  className="input-dark w-full px-4 py-2 text-white"
-                  required
-                />
+                <input type="text" value={formData.lyricist} onChange={(e) => setFormData({...formData, lyricist: e.target.value})} className="input-dark w-full px-4 py-2 text-white" required />
               </div>
-
-              {/* Год создания */}
               <div>
                 <label className="block text-gray-300 text-sm mb-2">Год создания</label>
-                <input
-                  type="number"
-                  placeholder="Год создания песни"
-                  value={formData.creation_year}
-                  onChange={(e) => setFormData({...formData, creation_year: parseInt(e.target.value)})}
-                  className="input-dark w-full px-4 py-2 text-white"
-                  min="1900"
-                  max={new Date().getFullYear()}
-                  required
-                />
+                <input type="number" value={formData.creation_year} onChange={(e) => setFormData({...formData, creation_year: parseInt(e.target.value)})} className="input-dark w-full px-4 py-2 text-white" min="1900" max={new Date().getFullYear()} required />
               </div>
-
-              {/* Исполнитель */}
               <div>
                 <label className="block text-gray-300 text-sm mb-2">Исполнитель</label>
-                <input
-                  type="text"
-                  placeholder="Введите имя исполнителя"
-                  value={formData.singer}
-                  onChange={(e) => setFormData({...formData, singer: e.target.value})}
-                  className="input-dark w-full px-4 py-2 text-white"
-                  required
-                />
+                <input type="text" value={formData.singer} onChange={(e) => setFormData({...formData, singer: e.target.value})} className="input-dark w-full px-4 py-2 text-white" required />
               </div>
-
-              {/* Группа */}
               <div>
-                <label className="block text-gray-300 text-sm mb-2">Группа</label>
-                <select
-                  value={formData.group_id}
-                  onChange={(e) => setFormData({...formData, group_id: e.target.value ? parseInt(e.target.value) : null})}
-                  className="input-dark w-full px-4 py-2 text-white"
-                >
-                  <option value="">Без группы</option>
-                  {groups.map(g => (
-                    <option key={g.id} value={g.id}>{g.name}</option>
-                  ))}
-                </select>
+                <label className="block text-gray-300 text-sm mb-2">Группы</label>
+                <div className="relative mb-2">
+                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
+                  <input type="text" placeholder="Поиск групп..." value={groupSearchText} onChange={(e) => setGroupSearchText(e.target.value)} className="input-dark w-full pl-9 pr-3 py-2 text-white text-sm" />
+                </div>
+                <div className="space-y-2 max-h-48 overflow-y-auto p-2 bg-white/5 rounded-lg">
+                  {filteredGroups.map(group => {
+                    const myGroupIds = getMyGroupIds()
+                    const isMyGroup = myGroupIds.includes(group.id)
+                    return (
+                      <label key={group.id} className={`flex items-center gap-2 p-2 rounded transition-colors ${isMyGroup ? 'bg-purple-500/10' : 'cursor-pointer hover:bg-white/10'}`}>
+                        <input 
+                          type="checkbox" 
+                          checked={formData.group_ids.includes(group.id)} 
+                          onChange={() => handleGroupToggle(group.id)} 
+                          className="w-4 h-4 rounded"
+                        />
+                        <span className={`text-sm ${isMyGroup ? 'text-purple-400 font-medium' : 'text-gray-300'}`}>
+                          {group.name}
+                          {isMyGroup && <span className="text-xs text-purple-400 ml-1">(ваша группа)</span>}
+                        </span>
+                      </label>
+                    )
+                  })}
+                </div>
+                {formData.group_ids.length === 0 && <p className="text-yellow-500 text-xs mt-2">⚠️ Выберите хотя бы одну группу</p>}
+                {formData.group_ids.length > 1 && <p className="text-green-500 text-xs mt-2">✓ Совместная песня ({formData.group_ids.length} группы)</p>}
+                {!isAdmin && !hasMyGroup(formData.group_ids) && formData.group_ids.length > 0 && (
+                  <p className="text-red-500 text-xs mt-2">❌ Вы должны добавить свою группу в песню</p>
+                )}
+                {!isAdmin && hasMyGroup(formData.group_ids) && (
+                  <p className="text-green-500 text-xs mt-2">✓ Ваша группа добавлена</p>
+                )}
               </div>
-
               <div className="flex gap-3 pt-4">
                 <button type="button" onClick={closeModal} className="flex-1 btn-secondary py-2 rounded-xl text-white">Отмена</button>
                 <button type="submit" className="flex-1 btn-primary py-2 rounded-xl text-white">Сохранить</button>

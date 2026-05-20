@@ -7,7 +7,6 @@ import (
     "net/http"
     "os"
     "strconv"
-    "time"
 
     "github.com/gin-contrib/cors"
     "github.com/gin-gonic/gin"
@@ -25,8 +24,8 @@ type Tour struct {
     Currency       string  `json:"currency"`
     GroupID        int     `json:"group_id"`
     GroupName      string  `json:"group_name,omitempty"`
-    CreatedBy      int     `json:"created_by"`
     CreatedAt      string  `json:"created_at"`
+    CreatedBy      int     `json:"created_by"`
 }
 
 type TourCreate struct {
@@ -92,27 +91,6 @@ func initDB() {
     log.Println("✅ Database connected successfully")
 }
 
-func validateDate(date string) bool {
-    _, err := time.Parse("2006-01-02", date)
-    return err == nil
-}
-
-func validateDateInRange(date, startDate, endDate string) bool {
-    d, _ := time.Parse("2006-01-02", date)
-    start, _ := time.Parse("2006-01-02", startDate)
-    end, _ := time.Parse("2006-01-02", endDate)
-    return (d.Equal(start) || d.After(start)) && (d.Equal(end) || d.Before(end))
-}
-
-func validateDates(startDate, endDate string) bool {
-    start, err1 := time.Parse("2006-01-02", startDate)
-    end, err2 := time.Parse("2006-01-02", endDate)
-    if err1 != nil || err2 != nil {
-        return false
-    }
-    return !end.Before(start)
-}
-
 func getUserID(c *gin.Context) int {
     userIDHeader := c.GetHeader("X-User-Id")
     if userIDHeader == "" {
@@ -153,7 +131,6 @@ func getTours(c *gin.Context) {
 
     rows, err := db.Query(query, params...)
     if err != nil {
-        log.Printf("Error querying tours: %v", err)
         c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
         return
     }
@@ -165,7 +142,6 @@ func getTours(c *gin.Context) {
         err := rows.Scan(&tour.ID, &tour.ProgramName, &tour.City, &tour.Date, &tour.StartDate,
             &tour.EndDate, &tour.AvgTicketPrice, &tour.Currency, &tour.GroupID, &tour.CreatedAt, &tour.GroupName, &tour.CreatedBy)
         if err != nil {
-            log.Printf("Error scanning tour: %v", err)
             c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
             return
         }
@@ -202,7 +178,6 @@ func getTour(c *gin.Context) {
         return
     }
     if err != nil {
-        log.Printf("Error getting tour: %v", err)
         c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
         return
     }
@@ -229,20 +204,22 @@ func createTour(c *gin.Context) {
         tour.Currency = "USD"
     }
 
-    if !validateDate(tour.Date) || !validateDates(tour.StartDate, tour.EndDate) {
-        c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid date format"})
+    // Простая проверка: даты не должны быть пустыми
+    if tour.Date == "" || tour.StartDate == "" || tour.EndDate == "" {
+        c.JSON(http.StatusBadRequest, gin.H{"error": "Все даты должны быть заполнены"})
         return
     }
 
-    if !validateDateInRange(tour.Date, tour.StartDate, tour.EndDate) {
-        c.JSON(http.StatusBadRequest, gin.H{"error": "Concert date must be within tour period"})
+    // Проверка: дата концерта должна быть между start и end (строковое сравнение работает с YYYY-MM-DD)
+    if tour.Date < tour.StartDate || tour.Date > tour.EndDate {
+        c.JSON(http.StatusBadRequest, gin.H{"error": "Дата концерта должна быть между началом и окончанием тура"})
         return
     }
 
     var groupCreatedBy int
     err := db.QueryRow("SELECT COALESCE(created_by, 1) FROM groups WHERE id = $1", tour.GroupID).Scan(&groupCreatedBy)
     if err == sql.ErrNoRows {
-        c.JSON(http.StatusNotFound, gin.H{"error": "Group not found"})
+        c.JSON(http.StatusNotFound, gin.H{"error": "Группа не найдена"})
         return
     }
     if err != nil {
@@ -251,7 +228,7 @@ func createTour(c *gin.Context) {
     }
 
     if userRole != "admin" && groupCreatedBy != userID {
-        c.JSON(http.StatusForbidden, gin.H{"error": "You can only add tours to your own groups"})
+        c.JSON(http.StatusForbidden, gin.H{"error": "Вы можете добавлять туры только для своих групп"})
         return
     }
 
@@ -388,8 +365,13 @@ func updateTour(c *gin.Context) {
         return
     }
     if err != nil {
-        log.Printf("Error updating tour: %v", err)
         c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+        return
+    }
+
+    // Простая проверка даты при обновлении
+    if updatedTour.Date < updatedTour.StartDate || updatedTour.Date > updatedTour.EndDate {
+        c.JSON(http.StatusBadRequest, gin.H{"error": "Дата концерта должна быть между началом и окончанием тура"})
         return
     }
 
@@ -426,7 +408,6 @@ func deleteTour(c *gin.Context) {
 
     result, err := db.Exec("DELETE FROM tours WHERE id = $1", id)
     if err != nil {
-        log.Printf("Error deleting tour: %v", err)
         c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
         return
     }

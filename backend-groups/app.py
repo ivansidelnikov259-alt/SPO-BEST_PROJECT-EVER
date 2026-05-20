@@ -110,6 +110,13 @@ async def get_all_groups(current_user: dict = Depends(get_current_user)):
             )
         return [dict(row) for row in rows]
 
+# НОВЫЙ ЭНДПОИНТ - ПОЛУЧИТЬ ВСЕ ГРУППЫ (БЕЗ ФИЛЬТРА)
+@app.get("/groups/all")
+async def get_all_groups_no_filter(current_user: dict = Depends(get_current_user)):
+    async with db_pool.acquire() as conn:
+        rows = await conn.fetch("SELECT id, name, country, created_by FROM groups ORDER BY name")
+        return [dict(row) for row in rows]
+
 @app.get("/groups/{group_id}")
 async def get_group(group_id: int, current_user: dict = Depends(get_current_user)):
     async with db_pool.acquire() as conn:
